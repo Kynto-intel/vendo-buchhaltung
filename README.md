@@ -9,6 +9,10 @@ EÜR-Übersicht, ELSTER-Übersicht zum Abtippen und ein Jahresarchiv als ZIP.
 Alle Daten bleiben auf dem eigenen Rechner. Nach außen gehen nur die Abfragen bei Shopify und Shirtigo (mit den eigenen
 Zugängen) und beim Versiegeln ein Prüfwert (Hash) an zwei Zeitstempeldienste – nie Belegdaten.
 
+![Buchhaltung im Browser: Kennzahlen, Filter und eingelesene Rechnungen (Beispiel mit erfundenen Daten)](docs/oberflaeche.png)
+
+*Beispiel mit erfundenen Daten: eigenständiger Betrieb im Browser, Reiter „Rechnungen“.*
+
 > Keine Steuerberatung. Die Übersichten helfen beim Ausfüllen, ersetzen aber keine Prüfung durch eine Fachperson.
 
 ## Zwei Wege, ein Code

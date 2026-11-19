@@ -1,5 +1,7 @@
 # Buchhaltung
 
+[![Tests](https://github.com/Kynto-intel/vendo-buchhaltung/actions/workflows/tests.yml/badge.svg)](https://github.com/Kynto-intel/vendo-buchhaltung/actions/workflows/tests.yml)
+
 Lokale Buchhaltung für kleine Online-Shops (Kleinunternehmer und Regelbesteuerung): holt Shopify-Bestellungen und
 erzeugt daraus Umsatzbelege, holt Shirtigo-Bestellungen mit Original-Rechnung, liest eigene PDF-Rechnungen lokal aus
 (Textebene oder Texterkennung, ohne Upload) und legt alles in ein Belegarchiv mit Hash-Kette, Zeitstempel-Siegeln und
@@ -109,7 +111,45 @@ npm test
 Nur erfundene Testdaten (`tests/fixtures/`). Die Tests für den Archivschutz laufen nur unter Windows; die Datenbank-Tests
 nutzen eine Test-Datenbank unter `VENDO_DB_URL` (Standard `postgres://postgres:nurtest@127.0.0.1:55432/vendo_test`) und
 werden übersprungen, wenn sie nicht erreichbar ist. Zwei Tests, die Vendo selbst brauchen (Datenbank-Kern,
-Electron-Oberfläche), liegen im Vendo-Repository.
+Electron-Oberfläche), liegen im Vendo-Repository. GitHub Actions führt `npm test` bei jedem Push und Pull Request
+unter Windows aus.
+
+## FAQ
+
+<details>
+<summary><strong>Wird die Buchhaltung mit KI entwickelt?</strong></summary>
+
+Ja, zu einem großen Teil mit Coding-Agenten (derzeit Claude Code) – aber nicht ungeprüft: Jede Änderung bringt Tests
+mit erfundenen Daten mit, der Agent prüft die Oberfläche selbst und berichtet, was geprüft ist und was nicht. Committet
+und veröffentlicht wird erst nach der Freigabe durch einen Menschen. Eine fachliche Prüfung durch eine Steuerberatung
+ersetzt das nicht. Wie das genau abläuft, mit einem echten Beispiel: [Agentic Engineering](docs/agentic-engineering.md).
+</details>
+
+<details>
+<summary><strong>Verlassen meine Daten den Rechner?</strong></summary>
+
+Nein. Belege, Bestellungen und Angaben bleiben lokal. Nach außen gehen nur die Abfragen bei Shopify und Shirtigo mit
+deinen eigenen Zugängen und beim Versiegeln ein Hashwert an zwei Zeitstempeldienste.
+</details>
+
+<details>
+<summary><strong>Nutzt die Browser-Version die Daten aus Vendo?</strong></summary>
+
+Nein, absichtlich nicht. Sie hat einen eigenen Datenordner. Würden Vendo und der Browser gleichzeitig dasselbe
+Belegarchiv beschreiben, wäre die Prüfkette in Gefahr; außerdem sind Vendos Geheimnisse mit dem Windows-Speicher
+verschlüsselt, den nur Vendo öffnen kann.
+</details>
+
+## Dokumentation
+
+- [Agentic Engineering](docs/agentic-engineering.md): wie die Buchhaltung mit Coding-Agenten entsteht
+- [Mitwirken](CONTRIBUTING.md): Fehler melden, Entwickeln, Tests, Pull Requests, KI-Werkzeuge
+- [AGENTS.md](AGENTS.md): Regeln für Coding-Agenten
+
+## Mitwirken
+
+Fehler und Ideen gern als Issue, Beiträge als Pull Request – mit oder ohne KI-Werkzeuge. Den Ablauf beschreibt
+[CONTRIBUTING.md](CONTRIBUTING.md). Bitte nie echte Belege oder Zugangsdaten anhängen.
 
 ## Herkunft
 

@@ -1,0 +1,10 @@
+{
+  "id": "buchhaltung",
+  "name": "Buchhaltung",
+  "version": "1.0.0",
+  "beschreibung": "Buchhaltung für den Shop: Shopify-Bestellungen und Shirtigo-Rechnungen holen, Belege archivieren, Gewinn je Bestellung, Steuer und EÜR.",
+  "symbol": "receipt",
+  "bereich": {
+    "name": "Buchhaltung"
+  }
+}

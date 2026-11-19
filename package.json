@@ -1,0 +1,38 @@
+{
+  "name": "vendo-buchhaltung",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lokale Buchhaltung für kleine Online-Shops: Belegarchiv mit Hash-Kette, Shopify- und Shirtigo-Abgleich, EÜR, Steuerübersicht. Läuft als Vendo-Plugin oder eigenständig im Browser.",
+  "license": "AGPL-3.0-or-later",
+  "main": "haupt.js",
+  "scripts": {
+    "start": "node standalone/server.js --browser",
+    "server": "node standalone/server.js",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "@tesseract.js-data/deu": "^1.0.0",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.4.299",
+    "pdfkit": "^0.20.2",
+    "tesseract.js": "^7.0.0"
+  },
+  "optionalDependencies": {
+    "pg": "^8.23.1"
+  },
+  "files": [
+    "*.js",
+    "!bisher.js",
+    "plugin.json",
+    "stil.css",
+    "vertrauen/",
+    "standalone/",
+    "README.md",
+    "LIZENZ.md",
+    "LICENSE"
+  ]
+}

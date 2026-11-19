@@ -1,0 +1,22 @@
+{
+  "_hinweis": "Synthetische „Meine Angaben“ für Tests (Schritt 2.3). Keine echten Daten; IBAN ist das Norm-Beispiel.",
+  "firmenname": "Synthetik-Shop",
+  "inhaber": "Erika Muster",
+  "strasse": "Teststraße 1",
+  "plz": "12345",
+  "ort": "Musterstadt",
+  "land": "DE",
+  "email": "test@example.test",
+  "website": "example.test",
+  "wId": "DE123456789",
+  "hinweis19": "Steuerfrei als Kleinunternehmer gemäß § 19 Abs. 1 UStG.",
+  "kontoinhaber": "Erika Muster",
+  "iban": "DE89370400440532013000",
+  "bank": "Testbank",
+  "eigeneNamen": ["Synthetik", "Muster"],
+  "steuerzeitraeume": [
+    { "von": "", "bis": "2024-03-03", "art": "klein", "satz": null },
+    { "von": "2024-03-04", "bis": "2024-04-12", "art": "regel", "satz": 19 },
+    { "von": "2024-04-13", "bis": "", "art": "klein", "satz": null }
+  ]
+}

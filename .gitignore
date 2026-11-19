@@ -1,0 +1,13 @@
+# Private Arbeitsdateien: nie veröffentlichen
+bisher.js
+LOGO.png
+PLAN.md
+STAND.md
+test-results/
+*.result.md
+
+# Erzeugte oder lokale Daten
+plz.json
+daten/
+node_modules/
+*.neu

@@ -1,0 +1,54 @@
+/* Grundgestaltung für den eigenständigen Betrieb: dieselben Variablen und Grundklassen, die stil.css und ansicht.js
+   aus Vendo erwarten (Farben wie Vendos Standard-Design, dunkel mit Gold-Akzent). */
+:root {
+  --akzent-rgb: 201, 161, 74;
+  --gold: rgb(var(--akzent-rgb));
+  --gold-hell: rgb(227, 190, 108);
+  --gold-dunkel: #4a3c1f;
+  --auf-gold: #16130c;
+  --hintergrund: #131315;
+  --flaeche: #19191c;
+  --rahmen: #26262a;
+  --text: #ece6da;
+  --text-leise: #8c877e;
+  --rot: #d8625a;
+  --radius: 8px;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--hintergrund); color: var(--text); font: 14px/1.45 'Segoe UI', system-ui, -apple-system, sans-serif; }
+input, select, textarea, button { font: inherit; color: inherit; }
+input, select, textarea { background: #101012; border: 1px solid var(--rahmen); border-radius: 6px; padding: 6px 8px; }
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--gold); border-color: var(--gold); }
+a { color: var(--gold-hell); }
+
+.ansicht-seite { max-width: 1400px; margin: 0 auto; padding: 18px 24px 60px; }
+.seiten-kopf { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.seiten-kopf h2 { margin: 0 0 2px; font-size: 20px; font-weight: 600; letter-spacing: .02em; }
+.seiten-knoepfe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+.leise { color: var(--text-leise); font-size: 12px; line-height: 1.5; }
+.leer-hinweis { padding: 26px; border: 1px dashed var(--rahmen); color: var(--text-leise); text-align: center; line-height: 1.6; }
+.leer-hinweis.fehler { color: var(--rot); }
+.knopf-mini { border: 1px solid var(--rahmen); background: transparent; padding: 3px 7px; margin-left: 4px; cursor: pointer; font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-leise); }
+.knopf-mini:hover { border-color: var(--gold); color: var(--gold-hell); }
+.knopf-mini:disabled { opacity: .5; cursor: default; }
+.knopf-gold, .knopf-gefahr { border: 1px solid var(--gold); border-radius: var(--radius); background: linear-gradient(180deg, var(--gold-hell), var(--gold)); color: var(--auf-gold); padding: 7px 14px; cursor: pointer; font-weight: 600; box-shadow: 0 6px 18px -8px rgba(var(--akzent-rgb), .7); }
+.knopf-gold:hover { filter: brightness(1.08); }
+.knopf-gold:disabled { opacity: .6; cursor: default; }
+.knopf-gefahr { border-color: var(--rot); background: var(--rot); color: #fff; box-shadow: none; }
+
+/* Dialoge (statt confirm/alert) und Meldungen */
+.dialog { max-width: 520px; border: 1px solid var(--gold-dunkel); border-radius: 10px; background: var(--flaeche); color: var(--text); padding: 18px 20px; }
+.dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.dialog h3 { margin: 0 0 8px; font-size: 16px; }
+.dialog-knoepfe { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px; }
+.meldungen { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: 380px; }
+.meldung { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--gold-dunkel); border-radius: 8px; background: var(--flaeche); box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+
+/* Sperrbildschirm (Passwort-Tresor) */
+.sperre { max-width: 420px; margin: 40px auto; display: flex; flex-direction: column; gap: 10px; padding: 22px; border: 1px solid var(--rahmen); border-radius: 10px; background: var(--flaeche); }
+.sperre h3 { margin: 0; }
+.sperre-fehler { margin: 0; min-height: 1em; color: var(--rot); font-size: 12px; }

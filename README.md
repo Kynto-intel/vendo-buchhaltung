@@ -112,7 +112,8 @@ Nur erfundene Testdaten (`tests/fixtures/`). Die Tests für den Archivschutz lau
 nutzen eine Test-Datenbank unter `VENDO_DB_URL` (Standard `postgres://postgres:nurtest@127.0.0.1:55432/vendo_test`) und
 werden übersprungen, wenn sie nicht erreichbar ist. Zwei Tests, die Vendo selbst brauchen (Datenbank-Kern,
 Electron-Oberfläche), liegen im Vendo-Repository. GitHub Actions führt `npm test` bei jedem Push und Pull Request
-unter Windows aus.
+unter Windows aus; die Tests mit echten NTFS-Rechten werden dort übersprungen, weil die Verweigerungsregeln auf den
+GitHub-Rechnern nicht greifen. Sie laufen nur lokal.
 
 ## FAQ
 

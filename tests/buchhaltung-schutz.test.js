@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const schutz = require('../schutz.js')
 const { archiv } = require('../archiv.js')
-const nurWindows = { skip: process.platform !== 'win32' && 'NTFS-Rechte gibt es nur unter Windows' }
+// Auf den Windows-Rechnern von GitHub Actions greifen die Verweigerungsregeln nicht (dort ließ sich eine geschützte Datei
+// löschen, Lauf vom 19.11.2026). Diese Tests laufen deshalb nur lokal unter Windows; übersprungen heißt nicht bestanden.
+const nurWindows = { skip: (process.platform !== 'win32' && 'NTFS-Rechte gibt es nur unter Windows') || (process.env.GITHUB_ACTIONS === 'true' && 'Auf GitHub-Runnern greifen NTFS-Verweigerungen nicht; lokal unter Windows prüfen') }
 
 function alleUnter(o) {
   return fs.readdirSync(o, { withFileTypes: true }).flatMap((d) => {

@@ -19,4 +19,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: npm test
+        shell: bash
+        run: npm test 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      # Fehlschläge als Hinweise am Lauf anzeigen (auch ohne Anmeldung sichtbar)
+      - name: Fehlschläge zusammenfassen
+        if: failure()
+        shell: bash
+        run: grep -E "^not ok|^# Subtest|✖|AssertionError|Error:|expected|actual|\+ |\- " test.log | head -60 | sed 's/^/::error::/' || true

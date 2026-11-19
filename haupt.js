@@ -32,7 +32,9 @@ const archivBelegt = (ordner) => (fs.statSync(path.join(ordner, 'index.jsonl'), 
 
 module.exports = (ctx) => {
   // Umfeld (host.js): in Vendo Electron im Hauptprozess wie bisher, eigenständig bringt standalone/server.js ctx.host mit
-  const host = ctx.host || require('./host').vendo(require, __dirname)
+  // ctx.ordner: Plugin-Ordner, wie Vendo ihn sieht. Ist plugins/buchhaltung eine Verknüpfung, zeigt __dirname auf das Ziel
+  // (dieses Repository) und Vendos daten/ wäre falsch abgeleitet.
+  const host = ctx.host || require('./host').vendo(require, ctx.ordner || __dirname)
   const pfade = host.pfade()
   const ORDNER = pfade.daten // ausgelesene Texte, OCR-Cache (veränderlich, kein Beleg)
   const VENDO = pfade.programm // Programmordner: das Archiv darf nicht darin liegen

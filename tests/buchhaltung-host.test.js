@@ -154,3 +154,10 @@ test('Eigenständiger Host: Pfade im Datenordner, Öffnen = Download anbieten, S
   if (process.platform !== 'win32') assert.deepEqual(h.laufwerke(), [], 'ohne Windows keine Laufwerkssuche')
   assert.equal(h.windows, process.platform === 'win32')
 })
+
+test('haupt.js nimmt den Plugin-Ordner aus ctx.ordner (Vendo über eine Verknüpfung), sonst __dirname', () => {
+  const quelle = fs.readFileSync(path.resolve('haupt.js'), 'utf8')
+  assert.match(quelle, /require\('\.\/host'\)\.vendo\(require, ctx\.ordner \|\| __dirname\)/)
+  const h = host.vendo((n) => (n === 'node:os' ? { homedir: () => os.tmpdir() } : null), path.join(os.tmpdir(), 'Vendo-synthetisch', 'plugins', 'buchhaltung'))
+  assert.equal(h.pfade().daten, path.join(os.tmpdir(), 'Vendo-synthetisch', 'daten', 'buchhaltung'), 'Daten im Vendo-Ordner, nicht neben dem Verknüpfungsziel')
+})

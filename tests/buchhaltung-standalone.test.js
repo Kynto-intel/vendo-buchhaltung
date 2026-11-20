@@ -257,11 +257,11 @@ test('Eigenes Repository vorbereitet: private Dateien ausgeschlossen, keine fest
   for (const f of paket.files) assert.equal(/PLAN|STAND|LOGO|result/.test(f), false, f)
   assert.ok(fs.existsSync(path.join(ordner, 'LIZENZ.md')))
   assert.ok(fs.existsSync(path.join(ordner, 'README.md')))
-  // Electron nur in host.js; kein fester Hermes-Profilname außer im Vendo-Standard von host.js
+  // Electron nur in host.js; kein fest eingetragener Hermes-Profilname (den gibt Vendo über VENDO_HERMES_PROFIL)
   const code = fs.readdirSync(ordner).filter((n) => n.endsWith('.js') && n !== 'bisher.js').map((n) => [n, fs.readFileSync(path.join(ordner, n), 'utf8')])
   for (const [n, text] of code) {
     if (n !== 'host.js') assert.equal(/require\(['"]electron['"]\)|laden\(['"]electron['"]\)/.test(text), false, `${n} ruft Electron auf`)
-    if (n !== 'host.js') assert.equal(/donnerwolf/i.test(text), false, `${n} enthält einen festen Namen`)
+    assert.equal(/VENDO_HERMES_PROFIL\s*\|\|\s*['"][^'"]/.test(text) || /profiles['"],\s*['"]/.test(text), false, `${n} enthält einen festen Profilnamen`)
     assert.equal(/window\.vendo\./.test(text), false, `${n} greift an ctx vorbei auf window.vendo zu`)
   }
 })

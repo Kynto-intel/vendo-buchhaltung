@@ -20,6 +20,8 @@ Regeln für Coding-Agenten in diesem Repository. Zuerst lesen: `README.md`, `CON
   in Logs, Tests oder Commits.
 - Nach außen nur die API-Abfragen mit den eigenen Zugängen und beim Versiegeln ein Hashwert.
 - Nie echte Belege, Namen, Steuernummern, IBANs oder Zugangsdaten in Code, Tests, Fixtures, Issues oder Commits.
+- Keine Logos, Markennamen oder Personennamen des Betreibers im Repository (`LOGO.png` und `bisher.js` bleiben lokal).
+  Kein fest eingetragener Hermes-Profilname: den gibt Vendo über `VENDO_HERMES_PROFIL` vor.
 - Keine neuen Abhängigkeiten ohne Begründung; keinen fremden Code übernehmen, ohne Herkunft und Lizenz zu vermerken.
 - Kein Commit, Push oder Merge auf `main` ohne Freigabe eines Menschen.
 

@@ -118,7 +118,6 @@ test('Echter Umsatzbeleg (pdfkit + pdfjs): Firmenangaben aus „Meine Angaben“
   assert.ok(regel.includes('19%'), 'Steuersatz 19 % in der Regelbesteuerung')
   assert.ok(regel.includes('NETTO') && regel.includes('ENTHALTENE UST 19 %'), 'Regelbesteuerung: Netto und enthaltene USt in den Summen')
   assert.equal(regel.includes('Kleinunternehmer'), false, 'kein § 19-Hinweis in der Regelbesteuerung')
-  for (const echt of ['Donnerwolf']) assert.equal(klein.includes(echt) || regel.includes(echt), false, `${echt} darf nicht mehr fest im Beleg stehen`)
 })
 
 test('§ 19-Hinweis folgt dem Steuerstatus des Belegs, nicht nur dem Tag (Phase 5.1)', () => {

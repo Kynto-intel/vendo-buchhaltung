@@ -25,14 +25,14 @@ const FENSTER = process.platform === 'win32'
 
 // ---------- Vendo: Electron im Hauptprozess ----------
 // laden = require von haupt.js (in Tests ein Stub), damit Electron und das Betriebssystem austauschbar bleiben.
-// Hermes-Profil wie in src/main/hermes.js; mit VENDO_HERMES_PROFIL abweichend einstellbar.
+// Hermes-Profil: Vendo setzt VENDO_HERMES_PROFIL beim Start (src/main/hermes.js). Ohne Profil gilt nur der Hermes-Ordner.
 // pluginOrdner = __dirname von haupt.js (in Tests ein Temp-Ordner): daraus folgen Vendo-Ordner und daten\.
 function vendo(laden = require, pluginOrdner = __dirname) {
   const os = laden('node:os')
   const electron = () => laden('electron')
   const programm = path.resolve(pluginOrdner, '..', '..')
   const hermesHome = () => process.env.VENDO_TEST_HERMES_HOME || path.join(process.env.LOCALAPPDATA || '', 'hermes')
-  const profil = () => process.env.VENDO_HERMES_PROFIL || 'donnerwolf'
+  const profil = () => process.env.VENDO_HERMES_PROFIL || ''
   return {
     art: 'vendo',
     windows: FENSTER,
@@ -73,7 +73,7 @@ const SHOP = /^[ \t]*SHOPIFY_STORE(?:_DOMAIN)?[ \t]*[:=][ \t]*['"]?([^'"\r\n\s]+
 function hermesShopify(home, profil) {
   let token = null
   let shop = null
-  for (const ordner of [path.join(home, 'profiles', profil), home]) {
+  for (const ordner of [...(profil ? [path.join(home, 'profiles', profil)] : []), home]) {
     for (const datei of [path.join(ordner, 'config.yaml'), path.join(ordner, '.env')]) {
       let text
       try { text = fs.readFileSync(datei, 'utf8') } catch { continue }

@@ -76,7 +76,7 @@ aufbewahrungspflichtig.
 
 - **Shopify:** eigene App im Shopify-Admin mit Admin-API-Zugriffstoken (`shpat_…`), Leserechte für Bestellungen und Produkte.
   Eigenständig im Menü „Shopify verbinden“ eintragen. In Vendo kommt der Zugang aus Hermes
-  (`SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_STORE`; Profil über `VENDO_HERMES_PROFIL`).
+  (`SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_STORE`; das Hermes-Profil gibt Vendo über `VENDO_HERMES_PROFIL` vor).
 - **Shirtigo:** API-Token aus dem Shirtigo-Cockpit im Menü „Shirtigo verbinden“.
 
 Beide Tokens werden nur verschlüsselt gespeichert und nie an die Oberfläche zurückgegeben.

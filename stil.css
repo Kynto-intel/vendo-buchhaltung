@@ -74,7 +74,7 @@ button.rn-chip { background: none; color: inherit; font: inherit; font-size: 11p
 button.rn-chip:hover { border-color: var(--gold-dunkel); }
 .rn-chip-an { border-color: var(--gold); background: rgba(212, 175, 55, .12); }
 
-.rn-status { min-height: 18px; margin: 8px 2px; font-size: 12px; }
+.rn-status { min-height: 18px; margin: 8px 2px; font-size: 12px; flex-shrink: 0; } /* nicht stauchen: sonst liegt die zweite Zeile unter dem nächsten Feld */
 
 /* Karten */
 .rn-liste { display: flex; flex-direction: column; gap: 10px; }
@@ -314,8 +314,8 @@ tr.rn-entfernt td, li.rn-entfernt { text-decoration: line-through; }
 
 /* Kleine goldene Knöpfe (knopf-gold + knopf-mini): in style.css überschreibt .knopf-mini den goldenen Hintergrund, die Schrift
    bleibt aber dunkel → unlesbar. Nur im eigenen Bereich korrigiert (globale Regeln wirken auf alle Plugins, siehe PLAN 10). */
-.plugin-ansicht[data-ansicht='plugin-rechnungen'] .knopf-gold.knopf-mini { background: linear-gradient(180deg, var(--gold-hell), var(--gold)); border-color: var(--gold); color: var(--auf-gold); }
-.plugin-ansicht[data-ansicht='plugin-rechnungen'] .knopf-gold.knopf-mini:disabled { opacity: .45; cursor: default; }
+.plugin-ansicht[data-ansicht='plugin-buchhaltung'] .knopf-gold.knopf-mini, .rn-usb .knopf-gold.knopf-mini { background: linear-gradient(180deg, var(--gold-hell), var(--gold)); border-color: var(--gold); color: var(--auf-gold); }
+.plugin-ansicht[data-ansicht='plugin-buchhaltung'] .knopf-gold.knopf-mini:disabled, .rn-usb .knopf-gold.knopf-mini:disabled { opacity: .45; cursor: default; }
 /* Meine Angaben: Persönliche Angaben, ELSTER-Übersicht, Export (Plan 11.3) */
 .rn-ang-aktion { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rn-ang-fehler { color: var(--rot, #e06c6c); }

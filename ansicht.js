@@ -928,7 +928,7 @@ export async function starten(ctx) {
         ziel.disabled = true
         status(`Sichere verschlüsselt auf ${lw} … (bitte den Stick nicht abziehen)`)
         const r = await ctx.aufrufen('usbSichern', lw)
-        status(r.ok ? `USB-Sicherung fertig: ${r.neu} neu, ${r.schonDa} schon vorhanden, ${r.kontrolle.geprueft} Dateien auf dem Stick geprüft ✓${r.persoenlich ? ', persönliche Angaben verschlüsselt mit' : ''} · Kennung ${r.kennung}.${r.persoenlichFehler ? ` ${r.persoenlichFehler}.` : ''} Stick jetzt auswerfen.` : `USB-Sicherung NICHT vollständig: ${[...r.fehler, ...(r.kontrolle?.fehler || [])][0] || 'unbekannter Fehler'}`)
+        status(r.ok ? `USB-Sicherung fertig: ${r.neu} neu, ${r.schonDa} schon vorhanden, ${r.kontrolle.geprueft} Dateien auf dem Stick geprüft ✓${r.persoenlich ? ', persönliche Angaben verschlüsselt mit' : ''}${r.plugindaten ? ', Einstufungen und Einstellungen verschlüsselt mit' : ''} · Kennung ${r.kennung}.${r.persoenlichFehler ? ` ${r.persoenlichFehler}.` : ''} Stick jetzt auswerfen.` : `USB-Sicherung NICHT vollständig: ${[...r.fehler, ...(r.kontrolle?.fehler || [])][0] || 'unbekannter Fehler'}`)
         return usbSicherungZeichnen(lw)
       }
       if (ziel.matches('[data-usb-stick-pruefen]')) {

@@ -13,6 +13,7 @@
 //   tresor                  { name, verfuegbar(), verschluesseln(text) → Buffer, entschluesseln(Buffer) → text }
 //   speichernUnter({ titel, name, filter })  → Zielpfad oder null (abgebrochen)
 //   laufwerke()             Wechseldatenträger für die USB-Sicherung ([] ohne Windows)
+//   ordnerWaehlen({ titel }) → Ordnerpfad oder null (abgebrochen); eigenständig: Unterordner im Datenordner
 //   shopifyZugang()         { token, shop } aus Hermes (nur Vendo); eigenständig null: Zugang kommt aus der Oberfläche
 //   zugaengeEinstellbar     true: Shopify-Zugang wird in der Oberfläche eingetragen und verschlüsselt gespeichert
 
@@ -54,6 +55,12 @@ function vendo(laden = require, pluginOrdner = __dirname) {
       const { dialog, BrowserWindow } = electron()
       const wahl = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow() || undefined, { title: titel, defaultPath: path.join(os.homedir(), 'Documents', name), filters: filter ? [filter] : [] })
       return wahl.canceled || !wahl.filePath ? null : path.resolve(wahl.filePath)
+    },
+    // Ordner wählen (z. B. Ziel der Wiederherstellung); Windows-Dialog mit „Neuer Ordner“
+    async ordnerWaehlen({ titel } = {}) {
+      const { dialog, BrowserWindow } = electron()
+      const wahl = await dialog.showOpenDialog(BrowserWindow.getFocusedWindow() || undefined, { title: titel, defaultPath: path.join(os.homedir(), 'Documents'), properties: ['openDirectory', 'createDirectory'] })
+      return wahl.canceled || !wahl.filePaths?.[0] ? null : path.resolve(wahl.filePaths[0])
     },
     laufwerke: () => laden('./usb').laufwerke(),
     // Shopify-Token wird bei jedem Aufruf aus Hermes gelesen (nur lesen, nie schreiben); er bleibt im Hauptprozess
@@ -171,6 +178,8 @@ function eigenstaendig({ datenordner, anbieten = () => {}, laden = require } = {
       anbieten(ziel, path.basename(ziel))
       return ziel
     },
+    // Im Browser gibt es keinen Ordnerdialog: Ziel ist ein Unterordner im Datenordner
+    async ordnerWaehlen() { const ziel = path.join(d, 'wiederherstellung'); fs.mkdirSync(ziel, { recursive: true }); return ziel },
     laufwerke: () => (FENSTER ? laden('./usb').laufwerke() : []),
     shopifyZugang: null
   }

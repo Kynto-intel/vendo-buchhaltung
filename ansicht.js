@@ -853,7 +853,7 @@ export async function starten(ctx) {
     const liste = await ctx.aufrufen('usbLaufwerke')
     auswahl.innerHTML = liste.map((l) => `<option value="${m(l.laufwerk)}">${m(l.laufwerk)} ${m(l.name || 'USB-Stick')} · ${m(l.dateisystem)} · ${m(gb(l.frei))} frei${l.vendo ? ' · enthält Vendo-Sicherung' : ''}</option>`).join('')
     if (gewaehlt && liste.some((l) => l.laufwerk === gewaehlt)) auswahl.value = gewaehlt
-    const knoepfe = [usb.querySelector('[data-usb-sichern]'), usb.querySelector('[data-usb-stick-pruefen]')]
+    const knoepfe = [usb.querySelector('[data-usb-sichern]'), usb.querySelector('[data-usb-stick-pruefen]'), usb.querySelector('[data-usb-wiederherstellen]'), usb.querySelector('[data-usb-einstellungen]')].filter(Boolean)
     const plan = usb.querySelector('[data-usb-plan]')
     if (!liste.length) { plan.textContent = 'Kein USB-Stick gefunden. Bitte einstecken und „Neu suchen“ drücken.'; knoepfe.forEach((k) => { k.disabled = true }); return }
     try {
@@ -862,7 +862,7 @@ export async function starten(ctx) {
       else if (!p.passt) plan.textContent = `Zu wenig Platz: nötig bis zu ${mb(p.bytes)}, frei ${mb(p.frei)}.`
       else plan.textContent = p.neu ? `Probelauf: ${p.neu} von ${p.eintraege} Dateien (${mb(p.bytes)}) würden verschlüsselt auf ${p.laufwerk.laufwerk} geschrieben. Nichts wird gelöscht.` : `Alles schon auf dem Stick (${p.eintraege} Dateien). Eine Sicherung legt nur einen neuen Stand an und prüft den Stick.`
       knoepfe[0].disabled = !p.archivOk || !p.passt
-      knoepfe[1].disabled = !p.schonGesichert
+      for (const k of knoepfe.slice(1)) k.disabled = !p.schonGesichert // Prüfen und Wiederherstellen nur mit einer Sicherung auf dem Stick
     } catch (f) { plan.textContent = f.message; knoepfe.forEach((k) => { k.disabled = true }) }
   }
   async function usbZeichnen(hinweis = '') {
@@ -893,7 +893,12 @@ export async function starten(ctx) {
         <div class="rn-usb-zeile"><select data-usb-laufwerk aria-label="USB-Stick"></select><button class="knopf-mini" data-usb-suchen type="button">Neu suchen</button></div>
         <p class="leise" data-usb-plan>Suche USB-Sticks …</p>
         <div class="rn-usb-zeile"><button class="knopf-gold knopf-mini" data-usb-sichern type="button" disabled>Jetzt auf USB sichern</button><button class="knopf-mini" data-usb-stick-pruefen type="button" disabled>Stick prüfen</button></div>
-        <p class="leise">Nach dem Sichern den Stick über Windows „Auswerfen“ und woanders aufbewahren als das Wiederherstellungsblatt.</p>${fehler}`
+        <p class="leise">Nach dem Sichern den Stick über Windows „Auswerfen“ und woanders aufbewahren als das Wiederherstellungsblatt.</p>
+        <details class="rn-usb-wieder" data-usb-wieder><summary>Vom Stick wiederherstellen</summary>
+          <p class="leise">Nach dem Verlust oder einer Neuinstallation des PCs: Das Archiv kommt entschlüsselt und geprüft in einen neuen Ordner (das bestehende Archiv bleibt unberührt). Einstellungen und Einstufungen werden nur dort zurückgeholt, wo hier noch nichts gespeichert ist.</p>
+          <div class="rn-usb-zeile"><button class="knopf-mini" data-usb-wiederherstellen type="button" disabled>Archiv vom Stick wiederherstellen …</button><button class="knopf-mini" data-usb-einstellungen type="button" disabled>Einstellungen vom Stick zurückholen</button></div>
+          <p class="leise" data-usb-wieder-meldung></p>
+        </details>${fehler}`
       await usbSicherungZeichnen()
       return
     }
@@ -930,6 +935,29 @@ export async function starten(ctx) {
         const r = await ctx.aufrufen('usbSichern', lw)
         status(r.ok ? `USB-Sicherung fertig: ${r.neu} neu, ${r.schonDa} schon vorhanden, ${r.kontrolle.geprueft} Dateien auf dem Stick geprüft ✓${r.persoenlich ? ', persönliche Angaben verschlüsselt mit' : ''}${r.plugindaten ? ', Einstufungen und Einstellungen verschlüsselt mit' : ''} · Kennung ${r.kennung}.${r.persoenlichFehler ? ` ${r.persoenlichFehler}.` : ''} Stick jetzt auswerfen.` : `USB-Sicherung NICHT vollständig: ${[...r.fehler, ...(r.kontrolle?.fehler || [])][0] || 'unbekannter Fehler'}`)
         return usbSicherungZeichnen(lw)
+      }
+      // Wiederherstellen vom Stick: Archiv in einen neuen Ordner, danach auf Wunsch als Archiv verwenden; Einstellungen zurückholen
+      const wieder = (t) => { const el = usb.querySelector('[data-usb-wieder-meldung]'); if (el) el.textContent = t }
+      if (ziel.matches('[data-usb-wiederherstellen]')) {
+        const lw = usb.querySelector('[data-usb-laufwerk]').value
+        ziel.disabled = true
+        wieder(`Stelle das Archiv von ${lw} wieder her … (bitte den Stick nicht abziehen)`)
+        try {
+          const r = await ctx.aufrufen('archivVomStick', lw)
+          if (r.abgebrochen) return wieder('Abgebrochen.')
+          wieder(r.ok ? `Wiederhergestellt: ${r.dateien} Dateien, alle gegen ihre Prüfsumme und die Hash-Kette geprüft ✓ – ${r.ziel}${r.schutzFehler ? ` (Windows-Schutz: ${r.schutzFehler[0]})` : ''}` : `Wiederherstellung mit ${r.fehler.length} Problem(en): ${r.fehler[0] || ''} – Ordner: ${r.ziel}`)
+          if (r.ok && r.alsArchivMoeglich) usb.querySelector('[data-usb-wieder-meldung]').insertAdjacentHTML('beforeend', ` <button class="knopf-mini" data-usb-als-archiv="${m(r.ziel)}" type="button">Als Archiv verwenden</button>`)
+        } finally { ziel.disabled = false }
+        return
+      }
+      if (ziel.matches('[data-usb-als-archiv]')) {
+        const r = await ctx.aufrufen('archivPfadSetzen', ziel.dataset.usbAlsArchiv)
+        wieder(`Archiv ist jetzt: ${r.pfad}`)
+        return
+      }
+      if (ziel.matches('[data-usb-einstellungen]')) {
+        const r = await ctx.aufrufen('plugindatenVomStick', usb.querySelector('[data-usb-laufwerk]').value)
+        return wieder(!r.ok ? r.meldung : r.zurueckgeholt.length ? `Zurückgeholt (Sicherung vom ${datumZeit(r.erstellt)}): ${r.zurueckgeholt.join(', ')}.${r.behalten.length ? ` Nicht überschrieben, weil hier schon gespeichert: ${r.behalten.join(', ')}.` : ''}` : 'Nichts zurückgeholt: Alle Bereiche sind hier schon gespeichert und werden nicht überschrieben.')
       }
       if (ziel.matches('[data-usb-stick-pruefen]')) {
         const lw = usb.querySelector('[data-usb-laufwerk]').value

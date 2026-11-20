@@ -347,7 +347,11 @@ module.exports = (ctx) => {
     const info = fs.statSync(neu, { throwIfNoEntry: false })
     if (info && !info.isDirectory()) throw new Error('Unter diesem Pfad liegt eine Datei, kein Ordner.')
     if (neu !== alt && archivBelegt(alt)) throw new Error('Das bisherige Archiv enthält schon Belege. Ein Umzug ist nur über die geprüfte Migration möglich.')
-    if (neu !== alt && archivBelegt(neu)) throw new Error('Im gewählten Ordner liegt bereits ein anderes Archiv.')
+    // Ein vorhandenes Archiv (z. B. vom Stick wiederhergestellt) darf nur übernommen werden, wenn seine Hash-Kette ok ist
+    if (neu !== alt && archivBelegt(neu)) {
+      const p = archiv(neu).integritaet()
+      if (!p.ok) throw new Error(`Im gewählten Ordner liegt ein Archiv mit ${p.fehler.length} Fehler(n). Es wird nicht übernommen.`)
+    }
     if (bestellungen.beschaeftigt() || shirtigoB.beschaeftigt()) throw new Error('Ein Abgleich läuft gerade. Bitte kurz warten und noch einmal versuchen.')
     const daten = ctx.datenLaden()
     const rest = { ...(daten.einstellungen || {}) }
@@ -589,6 +593,58 @@ module.exports = (ctx) => {
       return { ...erg, laufwerk: lw, ...(personFehler ? { persoenlichFehler: `Persönliche Angaben nicht mitgesichert: ${personFehler}` } : {}) }
     } finally { sicherungLaeuft = null }
   })
+  // ---------- Wiederherstellen vom Stick (nach Verlust oder Neuinstallation des PCs) ----------
+  // Archiv: Du wählst einen Ordner, darin entsteht ein neuer Unterordner. Vendo entschlüsselt den neuesten Stand, prüft jede
+  // Datei gegen ihre Prüfsumme und die ganze Hash-Kette, schützt die Dateien (NTFS) und protokolliert den Vorgang.
+  // Danach kann der Ordner als Archiv verwendet werden, solange das bisherige Archiv leer ist (archivPfadSetzen).
+  let wiederherstellungLaeuft = false
+  ctx.bereitstellen('archivVomStick', async (eingabe) => {
+    if (sicherungLaeuft || wiederherstellungLaeuft) throw new Error('Eine Sicherung oder Wiederherstellung läuft gerade.')
+    const lw = laufwerkPruefen(eingabe)
+    const k = usb().laden()
+    const gewaehlt = await host.ordnerWaehlen({ titel: 'Ordner für das wiederhergestellte Archiv wählen' })
+    if (!gewaehlt) return { abgebrochen: true }
+    const basis = path.resolve(gewaehlt)
+    if (innerhalb(basis, belegArchiv.WURZEL)) throw new Error('Bitte nicht in das bestehende Belegarchiv wiederherstellen.')
+    if (innerhalb(basis, VENDO)) throw new Error('Bitte nicht in den Programmordner wiederherstellen.')
+    if (innerhalb(basis, lw.wurzel)) throw new Error('Bitte nicht auf den Sicherungsstick wiederherstellen.')
+    const zeit = new Date().toISOString()
+    const ziel = path.join(basis, `Vendo-Archiv wiederhergestellt ${zeit.slice(0, 19).replace(/:/g, '-')}`)
+    wiederherstellungLaeuft = true
+    let erg
+    try { erg = await usbSicherung.wiederherstellen({ wurzel: lw.wurzel, wiederherstellungsschluessel: k, ziel }) } finally { wiederherstellungLaeuft = false }
+    let schutzFehler = null
+    if (host.windows) { try { const r = archiv(ziel, { schutz }).alleSchuetzen(); schutzFehler = r?.schutzFehler || null } catch (f) { schutzFehler = [f.message] } }
+    const bericht = { vorgang: 'Wiederherstellung des Archivs vom USB-Stick', zeit, ok: erg.ok, ziel: pfadKurz(ziel), laufwerk: lw.name || lw.laufwerk, stand: erg.stand || null, standErstellt: erg.erstellt || null, dateien: erg.dateien, bytes: erg.bytes, letzterHash: erg.letzterHash || null, fehler: (erg.fehler || []).slice(0, 20), schutz: schutzFehler ? 'mit Fehlern' : host.windows ? 'gesetzt' : 'nicht unter Windows' }
+    const hinweise = []
+    try { belegArchiv.ablegen(Buffer.from(JSON.stringify(bericht, null, 2), 'utf8'), { art: 'pruefbericht', jahr: Number(heuteBerlin().slice(0, 4)), name: `Wiederherstellung ${zeit.slice(0, 19).replace(/:/g, '-')}.json`, meta: { vorgang: 'wiederherstellung', ok: erg.ok, stand: erg.stand || null } }) } catch (f) { hinweise.push(`Prüfbericht nicht im Archiv: ${f.message}`) }
+    try { fs.appendFileSync(path.join(lw.wurzel, usbSicherung.ORDNER, 'protokoll.txt'), `${zeit}\tWIEDERHERSTELLUNG ${erg.ok ? 'OK' : 'FEHLER'}\tStand ${erg.stand || '–'}\tDateien ${erg.dateien}\n`, 'utf8') } catch { /* Stick schreibgeschützt: steht im Prüfbericht */ }
+    return { ...erg, ziel, schutzFehler, hinweise, alsArchivMoeglich: erg.ok && !archivBelegt(belegArchiv.WURZEL) }
+  })
+  // Einstellungen und Einstufungen vom Stick (K.4): nur Bereiche, die hier noch fehlen oder leer sind – nie überschreiben
+  const AUSGENOMMEN = new Set(['zugaenge', 'persoenlich', 'wartung', 'aufgabenGemeldet'])
+  const leer = (w) => w == null || (Array.isArray(w) ? !w.length : typeof w === 'object' ? !Object.keys(w).length : w === '')
+  ctx.bereitstellen('plugindatenVomStick', async (eingabe) => {
+    const lw = laufwerkPruefen(eingabe)
+    const r = await usbSicherung.plugindatenLesen({ wurzel: lw.wurzel, wiederherstellungsschluessel: usb().laden() })
+    if (!r) return { ok: false, meldung: 'Auf dem Stick sind keine Einstellungen gesichert (erst Sicherungen ab dem 20.11.2026 enthalten sie).' }
+    const d = ctx.datenLaden()
+    const neu = { ...d }
+    const zurueck = []
+    const behalten = []
+    for (const [bereich, wert] of Object.entries(r.daten)) {
+      if (AUSGENOMMEN.has(bereich)) continue
+      if (leer(d[bereich])) { neu[bereich] = wert; zurueck.push(bereich) } else behalten.push(bereich)
+    }
+    if (zurueck.length) {
+      try { aenderungProtokollieren('plugindaten-vom-stick', { stand: r.stand, standErstellt: r.erstellt, zurueckgeholt: zurueck, behalten }) } catch { /* nach einer Neuinstallation kann das Archiv noch fehlen */ }
+      ctx.datenSpeichern(neu)
+      if (zurueck.includes('angaben')) profil.setzen(neu.angaben)
+      bestellungen.neuBerechnen()
+      shirtigoB.neuBerechnen()
+    }
+    return { ok: true, stand: r.stand, erstellt: r.erstellt, zurueckgeholt: zurueck, behalten }
+  })
   // Nach einer Neuinstallation: persönliche Angaben vom Stick zurückholen. Überschreibt nie gespeicherte Angaben.
   ctx.bereitstellen('persoenlichVomStick', async (eingabe) => {
     if (persoenlichLesen()) throw new Error('Es sind schon persönliche Angaben gespeichert. Sie werden nicht überschrieben.')
@@ -701,7 +757,7 @@ module.exports = (ctx) => {
       firma: { ...angaben.standardwerte(), ...(d.angaben || {}) },
       versionen: { plugin: require('./plugin.json').version, parser: VERSION, node: process.versions.node, electron: process.versions.electron || null },
       archiv: { pfad: pfadKurz(belegArchiv.WURZEL), eintraege: e.length, erster: e[0]?.zeit || null, arten: jahresarchiv.anzahlJeArt(e) },
-      wartung: d.wartung || null,
+      wartung: d.wartung ? { ...d.wartung, siegel: { ...(d.wartung.siegel || {}), ...siegelLive(e) } } : null,
       usb: { letzteSicherung: st.usb.letzteSicherung, laufwerk: st.usb.laufwerk, schluesselBestaetigt: !!st.schluessel.bestaetigt, wiederherstellungstest: d.usb?.letzterWiederherstellungstest || null },
       datenbank: { zustand: !db ? 'keine Datenbank eingerichtet' : db.zustand().zustand === 'bereit' ? 'verbunden' : 'nicht verbunden' },
       quellen: { shopify: { eingerichtet: shopifyEin, quelle: host.zugaengeEinstellbar ? 'eigen' : 'hermes' }, shirtigo: !!shirtigo.verbunden(), belege: lesen().length },
@@ -782,6 +838,14 @@ module.exports = (ctx) => {
     return eintrag
   })
 
+  // Siegel-Stand live aus dem Index (das letzte Siegel vermerkt, wie viele Einträge es deckt) – die wöchentliche Prüfung
+  // liefert nur Gültigkeit und Fehler; Anzahl, Zeit und Unversiegeltes sollen sofort nach dem Versiegeln stimmen.
+  const SIEGEL_ARTEN = new Set(['siegel', 'zeitstempel', 'zertifikat'])
+  function siegelLive(e = belegArchiv.eintraege()) {
+    const s = e.filter((x) => x.art === 'siegel')
+    const letztes = s.at(-1)
+    return { anzahl: s.length, zuletzt: letztes?.zeit || null, nochNichtVersiegelt: e.filter((x) => x.nr > (Number(letztes?.meta?.archivEintraege) || 0) && !SIEGEL_ARTEN.has(x.art)).length }
+  }
   function archivStatusDaten() {
     const d = ctx.datenLaden()
     const w = d.wartung || null
@@ -791,7 +855,7 @@ module.exports = (ctx) => {
     try { schl = usb().status() } catch (f) { schl = { fehler: f.message } }
     return {
       archiv: { pfad: belegArchiv.WURZEL, eintraege: belegArchiv.eintraege().length },
-      pruefung: w ? { ...w, tageSeit: tageSeit(w.zeit), faellig: tageSeit(w.zeit) >= 7 } : { faellig: true },
+      pruefung: { ...(w ? { ...w, tageSeit: tageSeit(w.zeit), faellig: tageSeit(w.zeit) >= 7 } : { faellig: true }), siegel: { ...(w?.siegel || {}), ...siegelLive() } },
       usb: { letzteSicherung: u.letzteSicherung || null, tageSeit: tageSeit(u.letzteSicherung), laufwerk: u.laufwerk || null, letztesErgebnis: u.letztesErgebnis || null },
       wiederherstellungstest: t ? { ...t, tageSeit: tageSeit(t.zeit), faellig: !t.ok || tageSeit(t.zeit) >= 365 } : { faellig: true },
       schluessel: { bestaetigt: !!schl.bestaetigt, kennung: schl.kennung || null, ...(schl.fehler ? { fehler: schl.fehler } : {}) }

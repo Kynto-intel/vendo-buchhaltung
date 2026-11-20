@@ -186,6 +186,18 @@ async function persoenlichLesen({ wurzel, wiederherstellungsschluessel, stand = 
   return null
 }
 
+// Neuester (oder angegebener) Stand mit den übrigen Plugin-Daten (K.4), entschlüsselt – für die Rückholung nach einer
+// Neuinstallation. Nur ein flaches Objekt aus Bereichen; was darin steht, entscheidet haupt.js beim Zurückholen.
+async function plugindatenLesen({ wurzel, wiederherstellungsschluessel, stand = null }) {
+  const s = await oeffnen(wurzel, wiederherstellungsschluessel)
+  const staende = fs.readdirSync(path.join(s.ordner, 'staende')).filter((d) => d.endsWith('.vsb')).sort().reverse()
+  for (const name of stand ? [stand] : staende) {
+    const inhalt = JSON.parse(entschluesseln(s.kDaten, fs.readFileSync(path.join(s.ordner, 'staende', name)), `stand:${name}`).toString('utf8'))
+    if (inhalt.plugindaten && typeof inhalt.plugindaten === 'object' && !Array.isArray(inhalt.plugindaten)) return { stand: name, erstellt: inhalt.erstellt, daten: inhalt.plugindaten }
+  }
+  return null
+}
+
 // ---------- Prüfen auf dem Stick: neuester (oder angegebener) Stand vollständig ----------
 async function pruefen({ wurzel, wiederherstellungsschluessel, stand = null }) {
   const s = await oeffnen(wurzel, wiederherstellungsschluessel)
@@ -283,4 +295,4 @@ function laufwerke() {
   }))
 }
 
-module.exports = { sichern, pruefen, planen, oeffnen, laufwerke, entschluesseln, wiederherstellen, wiederherstellungTesten, persoenlichLesen, ORDNER, STAND_VERSION }
+module.exports = { sichern, pruefen, planen, oeffnen, laufwerke, entschluesseln, wiederherstellen, wiederherstellungTesten, persoenlichLesen, plugindatenLesen, ORDNER, STAND_VERSION }

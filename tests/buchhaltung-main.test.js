@@ -123,9 +123,9 @@ function createPluginHarness({ failOnSave = false, initialData = { dateien: [] }
     ['./profil', require('../profil.js')],
     ['./bisher', { EIGENE_NAMEN: [/synthetik/i, /muster/i], FIRMA: { name: 'Synthetik-Shop', zeilen: ['Teststraße 1 / Musterstadt', '12345 / Germany', 'test@example.test', 'example.test'], schluss: ['Empfänger: Erika Muster, IBAN: DE89370400440532013000,', 'Bank: Testbank, W-IdNr: DE123456789'] } }],
     ['./schluessel', { speicher(optionen) { usbAufrufe.push({ optionen }); return { status: () => ({ vorhanden: false }), neu: () => ({ schluessel: 'K', kennung: 'ID' }), bestaetigen: (e) => ({ bestaetigt: e }), eingeben: (e) => ({ eingegeben: e }), laden: () => 'GEHEIM' } } }],
-    ['electron', { app: { getPath: (n) => path.join(syntheticHome, n) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (t) => Buffer.from('ENC:' + t), decryptString: (b) => String(b).slice(4) } }],
+    ['electron', { app: { getPath: (n) => path.join(syntheticHome, n) }, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [path.join(syntheticHome, 'Wiederherstellung')] }) }, BrowserWindow: { getFocusedWindow: () => null }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (t) => Buffer.from('ENC:' + t), decryptString: (b) => String(b).slice(4) } }],
     ['./beleg-layout', { bildspeicherSetzen: () => {} }],
-    ['./usb', { wiederherstellungTesten: async (o) => { usbAufrufe.push({ test: o }); return { ...testErgebnis } }, laufwerke: () => usbLaufwerke.slice(), planen: (o) => { usbAufrufe.push({ planen: o }); return { neu: 1 } }, sichern: async (o) => { usbAufrufe.push({ sichern: o }); return { ok: usbErgebnisOk, stand: 'S1', kennung: 'ID', neu: 1 } }, pruefen: async (o) => { usbAufrufe.push({ pruefen: o }); return { ok: true } }, persoenlichLesen: async (o) => { usbAufrufe.push({ persoenlichLesen: o }); return { stand: 'S1', erstellt: '2026-11-01T00:00:00.000Z', werte: { vorname: 'Vom', nachname: 'Stick', steuerId: '86095742719' } } } }],
+    ['./usb', { ORDNER: 'Vendo-Sicherung', wiederherstellen: async (o) => { usbAufrufe.push({ wiederherstellen: o }); return { ok: true, stand: 'S1.vsb', erstellt: '2026-11-20T02:00:00Z', dateien: 3, bytes: 30, letzterHash: 'h', fehler: [] } }, plugindatenLesen: async () => ({ stand: 'S1.vsb', erstellt: '2026-11-20T02:00:00Z', daten: { p13bAnbieter: { 'Synthetik Ltd': { einstufung: 'steuerfrei' } }, angaben: { firmenname: 'Vom Stick' }, zugaenge: { shopify: 'GEHEIM' }, p13bMonate: { '2026-Q1': { am: '2026-04-09' } } } }), wiederherstellungTesten: async (o) => { usbAufrufe.push({ test: o }); return { ...testErgebnis } }, laufwerke: () => usbLaufwerke.slice(), planen: (o) => { usbAufrufe.push({ planen: o }); return { neu: 1 } }, sichern: async (o) => { usbAufrufe.push({ sichern: o }); return { ok: usbErgebnisOk, stand: 'S1', kennung: 'ID', neu: 1 } }, pruefen: async (o) => { usbAufrufe.push({ pruefen: o }); return { ok: true } }, persoenlichLesen: async (o) => { usbAufrufe.push({ persoenlichLesen: o }); return { stand: 'S1', erstellt: '2026-11-01T00:00:00.000Z', werte: { vorname: 'Vom', nachname: 'Stick', steuerId: '86095742719' } } } }],
     ['./zeitstempel', { versiegeln: async ({ archiv }) => ({ ok: true, archiv: archiv.WURZEL }), pruefen: ({ archiv }) => ({ ok: true, archiv: archiv.WURZEL, anzahl: 2, ergebnisse: [], zuletzt: { zeit: '2026-10-29T00:00:00Z' }, nochNichtVersiegelt: 3 }) }],
     ['./shirtigo', { einrichten() {}, verbinden: () => ({}), verbunden: () => false, probe: () => ({ werkzeuge: [], datei: 'synthetic' }) }],
     ['./host', require('../host.js')], // Vendo-Host mit dem Stub-require (electron, node:os)
@@ -418,7 +418,7 @@ test('Archive status summarises check, seals, USB, restore test and key without 
   assert.deepEqual([s.archiv.eintraege, s.pruefung.faellig, s.usb.tageSeit, s.usb.laufwerk, s.wiederherstellungstest.faellig, s.wiederherstellungstest.tageSeit, s.schluessel.bestaetigt], [0, true, 0, 'STICK', true, 400, false])
   await app.services.get('wartungLauf')()
   s = app.services.get('archivStatus')()
-  assert.deepEqual([s.pruefung.faellig, s.pruefung.tageSeit, s.pruefung.siegel.anzahl], [false, 0, 2])
+  assert.deepEqual([s.pruefung.faellig, s.pruefung.tageSeit, s.pruefung.siegel.anzahl, s.pruefung.siegel.ok], [false, 0, 0, true]) // Anzahl live aus dem Archivindex (hier ohne Siegel), Gültigkeit aus der wöchentlichen Prüfung
   assert.equal(JSON.stringify(s).includes('GEHEIM'), false)
   const view = require('node:fs').readFileSync(path.join(pluginFolder, 'ansicht.js'), 'utf8')
   for (const name of ['archivStatus', 'wartungLauf', 'wiederherstellungTesten']) assert.ok(view.includes(`ctx.aufrufen('${name}'`), name)
@@ -750,4 +750,54 @@ test('K.2: Neuauswertung mit geänderten Beträgen wird protokolliert und am Bel
   assert.equal(p.beleg, entry.id)
   assert.match(neu.rechnung.pruefung.hinweise.at(-1), /^Neu ausgewertet am .*summen\.brutto 11\.9 → 12\.9.*Protokoll im Archiv\.$/)
   assert.ok(neu.neuausgewertet.unterschiede.length)
+})
+
+// ---------- Wiederherstellen vom Stick (20.11.2026) ----------
+test('Archiv vom Stick: neuer Unterordner, Prüfbericht im Archiv, als Archiv verwendbar solange das bisherige leer ist', async () => {
+  const app = createPluginHarness()
+  app.services.get('usbSchluesselBestaetigen')?.('K') // Schlüssel liegt im Stub immer vor
+  const erg = await app.services.get('archivVomStick')('D:')
+  assert.equal(erg.ok, true, JSON.stringify(erg))
+  const aufruf = app.usbAufrufe.find((x) => x.wiederherstellen).wiederherstellen
+  assert.equal(aufruf.wurzel, 'D:\\')
+  assert.match(aufruf.ziel, /Wiederherstellung[\\/]Vendo-Archiv wiederhergestellt \d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/)
+  assert.equal(erg.alsArchivMoeglich, true, 'bisheriges Archiv ist leer')
+  const bericht = app.archives[0].abgelegt.find((e) => e.meta?.vorgang === 'wiederherstellung')
+  assert.deepEqual([bericht.art, bericht.meta.ok, bericht.meta.stand], ['pruefbericht', true, 'S1.vsb'])
+  const inhalt = JSON.parse(app.files.get(app.archives[0].pfad(bericht)))
+  assert.deepEqual([inhalt.dateien, inhalt.ok], [3, true])
+  assert.match(inhalt.ziel, /Vendo-Archiv wiederhergestellt/)
+  await assert.rejects(app.services.get('archivVomStick')('Z:'), /Laufwerk|Stick/i)
+})
+
+test('Einstellungen vom Stick: nur fehlende Bereiche, nie überschreiben, nie Zugangsdaten', async () => {
+  const app = createPluginHarness({ initialData: { dateien: [], p13bMonate: { '2026-Q2': { am: '2026-07-09' } } } })
+  const r = await app.services.get('plugindatenVomStick')('D:')
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.deepEqual(r.zurueckgeholt.sort(), ['angaben', 'p13bAnbieter'])
+  assert.deepEqual(r.behalten, ['p13bMonate'])
+  const d = app.storedData()
+  assert.equal(d.zugaenge, undefined, 'Zugangsdaten kommen nie vom Stick')
+  assert.deepEqual(d.p13bMonate, { '2026-Q2': { am: '2026-07-09' } }, 'vorhandene Werte bleiben')
+  assert.deepEqual(d.p13bAnbieter, { 'Synthetik Ltd': { einstufung: 'steuerfrei' } })
+  assert.equal(d.angaben.firmenname, 'Vom Stick')
+  const prot = app.archives.at(-1).abgelegt.find((e) => e.meta?.bereich === 'plugindaten-vom-stick')
+  assert.deepEqual(JSON.parse(app.files.get(app.archives.at(-1).pfad(prot))).zurueckgeholt.sort(), ['angaben', 'p13bAnbieter'])
+  const zweites = await app.services.get('plugindatenVomStick')('D:')
+  assert.deepEqual(zweites.zurueckgeholt, [], 'beim zweiten Mal ist alles schon da')
+})
+
+test('Siegel-Stand live aus dem Index: nach dem Versiegeln sofort 0 unversiegelt, nicht erst nach der wöchentlichen Prüfung', () => {
+  const app = createPluginHarness()
+  const a = app.archives.at(-1)
+  for (let i = 1; i <= 3; i++) a.ablegen(Buffer.from(`beleg ${i}`), { art: 'eingang', jahr: 2026, name: `b${i}.pdf`, meta: {} })
+  a.abgelegt.forEach((e, i) => { e.nr = i + 1 }) // Stub-Archiv vergibt keine Nummern
+  const vorher = app.services.get('archivStatus')().pruefung.siegel
+  assert.deepEqual([vorher.anzahl, vorher.nochNichtVersiegelt, vorher.zuletzt], [0, 3, null])
+  a.abgelegt.forEach((e, i) => { e.nr = i + 1 })
+  a.ablegen(Buffer.from('siegel'), { art: 'siegel', jahr: 2026, name: 'Siegel.json', meta: { archivEintraege: 3 } })
+  a.ablegen(Buffer.from('tsr'), { art: 'zeitstempel', jahr: 2026, name: 'x.tsr', meta: {} })
+  a.abgelegt.forEach((e, i) => { e.nr = i + 1; e.zeit = e.zeit || '2026-11-20T02:00:00Z' })
+  const nachher = app.services.get('archivStatus')().pruefung.siegel
+  assert.deepEqual([nachher.anzahl, nachher.nochNichtVersiegelt, nachher.zuletzt], [1, 0, '2026-11-20T02:00:00Z'])
 })

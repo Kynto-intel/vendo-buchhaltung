@@ -335,3 +335,19 @@ test('K.4: übrige Plugin-Daten kommen verschlüsselt in den Stand (Version 3), 
   const p = await usb.pruefen({ wurzel: stick, wiederherstellungsschluessel: k })
   assert.deepEqual(p.plugindaten, { enthalten: true, bereiche: ['angaben', 'p13bAnbieter', 'p13bMonate'] })
 })
+
+test('Wiederherstellen vom Stick: Plugin-Daten aus dem neuesten Stand lesen, Archiv in leeren Ordner mit gültiger Kette', async (t) => {
+  const { a, stick, k } = aufbau(t)
+  await assert.rejects(usb.plugindatenLesen({ wurzel: stick, wiederherstellungsschluessel: k }), /keine Vendo-Sicherung/)
+  await usb.sichern(opt({ archiv: a, wurzel: stick, wiederherstellungsschluessel: k }))
+  assert.equal(await usb.plugindatenLesen({ wurzel: stick, wiederherstellungsschluessel: k }), null, 'alter Stand ohne Plugin-Daten')
+  await new Promise((r) => setTimeout(r, 5)) // zweiter Stand bekommt einen späteren Namen
+  await usb.sichern(opt({ archiv: a, wurzel: stick, wiederherstellungsschluessel: k, plugindaten: { p13bAnbieter: { X: { einstufung: 'steuerfrei' } } } }))
+  const p = await usb.plugindatenLesen({ wurzel: stick, wiederherstellungsschluessel: k })
+  assert.deepEqual(p.daten, { p13bAnbieter: { X: { einstufung: 'steuerfrei' } } })
+  const ziel = path.join(temp(t, 'wieder'), 'neu')
+  const w = await usb.wiederherstellen({ wurzel: stick, wiederherstellungsschluessel: k, ziel })
+  assert.equal(w.ok, true, JSON.stringify(w.fehler))
+  for (const e of a.eintraege()) assert.equal(sha(fs.readFileSync(path.join(ziel, ...e.datei.split('/')))), e.sha256, e.datei)
+  await assert.rejects(usb.wiederherstellen({ wurzel: stick, wiederherstellungsschluessel: k, ziel }), /muss leer sein/)
+})

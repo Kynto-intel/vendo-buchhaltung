@@ -71,7 +71,7 @@ const leer = () => Object.fromEntries(FELDER.map((f) => [f.feld, '']))
 
 // ELSTER-Übersicht für ein Jahr: welche Werte wohin gehören (zum Abtippen, ohne Gewähr)
 const ANLAGE = { gewerbe: 'Anlage G', selbstaendig: 'Anlage S' }
-function elster({ person = {}, firma = {}, euer = null, jahr } = {}) {
+function elster({ person = {}, firma = {}, euer = null, jahr, ust = null } = {}) {
   const p = { ...leer(), ...person }
   const name = (v, n) => [v, n].filter(Boolean).join(' ')
   const hauptvordruck = [
@@ -95,6 +95,12 @@ function elster({ person = {}, firma = {}, euer = null, jahr } = {}) {
     hauptvordruck: hauptvordruck.map(([label, wert]) => ({ label, wert: wert || '' })),
     gewinn: { anlage, label: 'Gewinn laut Anlage EÜR', wert: euer ? e.gewinn : null },
     euer: euerZeilen.map(([kz, label, wert]) => ({ kz, label, wert })),
+    // Umsatzsteuererklärung (USt 2 A): nur wenn Pflicht (§ 13b-Steuer oder Regelbesteuerung im Jahr)
+    umsatzsteuer: ust?.pflicht ? [
+      ['Steuerpflichtige Umsätze (netto, Regelbesteuerung)', e.kz112], ['Umsatzsteuer darauf', e.kz140],
+      ['§ 13b: Leistungen von Unternehmern aus dem übrigen EU-Gebiet – Bemessungsgrundlage', ust.eu.bemessung], ['§ 13b (EU): Steuer', ust.eu.steuer],
+      ['§ 13b: Leistungen von Unternehmern außerhalb der EU – Bemessungsgrundlage', ust.drittland.bemessung], ['§ 13b (außerhalb der EU): Steuer', ust.drittland.steuer]
+    ].filter(([, w]) => Number(w)).map(([label, wert]) => ({ label, wert })) : null,
     firma: { name: firma.firmenname || '', steuernummer: firma.steuernummer || '', finanzamt: firma.finanzamt || '' }
   }
 }

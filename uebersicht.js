@@ -54,7 +54,7 @@ function werktag(tag) {
 }
 const tagePlus = (tag, n) => { const d = new Date(`${tag}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
 const tagText = (t) => t.split('-').reverse().join('.')
-const monatText = (m) => `${m.slice(5, 7)}.${m.slice(0, 4)}`
+const monatText = (m) => (m.includes('Q') ? `${m.slice(5)}/${m.slice(0, 4)}` : `${m.slice(5, 7)}.${m.slice(0, 4)}`)
 const STUFEN = ['rot', 'gelb', 'info']
 
 // Aufgaben & Fristen. Jede Aufgabe: { schluessel, stufe: rot|gelb|info, titel, text, frist, ziel, erledigbar }.
@@ -63,7 +63,7 @@ const STUFEN = ['rot', 'gelb', 'info']
 const REGELCHECK = ['§ 19 UStG: Kleinunternehmergrenzen (25.000 € Vorjahr, 100.000 € laufendes Jahr) und Rechnungshinweis', 'Aufbewahrungsfristen (§ 147 AO, § 14b UStG)', 'E-Rechnung: Empfangspflicht, Formate, Fristen', '§ 13b UStG: Voranmeldung, Umsatzsteuer-Jahreserklärung, Einstufung der Anbieter', 'EU-Fernverkauf (10.000 €) und OSS', 'Datenschutz: Verzeichnis der Verarbeitungstätigkeiten aktuell']
 const tageZwischen = (von, bis) => Math.floor((Date.parse(`${bis}T00:00:00Z`) - Date.parse(String(von).slice(0, 10) + 'T00:00:00Z')) / 86_400_000)
 
-function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null, p13bMonate = [], waechter = null, statusPasst = true, erledigt = {}, verfahren = null } = {}) {
+function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null, p13bMonate = [], waechter = null, statusPasst = true, erledigt = {}, verfahren = null, ustJahre = [] } = {}) {
   const liste = []
   const neu = (a) => liste.push({ frist: null, erledigbar: false, ...a })
   const jahr = Number(heute.slice(0, 4))
@@ -113,6 +113,15 @@ function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null,
     const frist = werktag(`${jahr}-07-31`)
     neu({ schluessel: euer, stufe: heute > frist ? 'rot' : heute >= tagePlus(frist, -60) ? 'gelb' : 'info', titel: `Steuererklärung ${vorjahr} mit Anlage EÜR`, frist, ziel: 'uebersicht', erledigbar: true,
       text: heute > frist ? `Frist ${tagText(frist)} abgelaufen – falls noch nicht abgegeben, bitte beim Finanzamt melden.` : `Abgabe ohne Steuerberater bis ${tagText(frist)}. Zahlen siehe EÜR-Tabelle.` })
+  }
+  // Umsatzsteuer-Jahreserklärung (§ 18 Abs. 3 und 4a UStG): für jedes abgeschlossene Jahr mit § 13b-Steuer oder Regelbesteuerung
+  for (const u of ustJahre) {
+    const j = Number(u.jahr)
+    const schluessel = `ustje-${j}`
+    if (!u.pflicht || j >= jahr || erledigt[schluessel]) continue
+    const frist = werktag(`${j + 1}-07-31`)
+    neu({ schluessel, stufe: heute > frist ? 'rot' : heute >= tagePlus(frist, -60) ? 'gelb' : 'info', titel: `Umsatzsteuer-Jahreserklärung ${j}`, frist, ziel: 'steuer', erledigbar: true,
+      text: `${u.steuer ? `§ 13b-Steuer ${j}: ${u.steuer.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €. ` : ''}${u.regel ? 'Im Jahr gab es einen Zeitraum mit Regelbesteuerung. ' : ''}Auch als Kleinunternehmer Pflicht (§ 18 Abs. 4a UStG). ${heute > frist ? `Frist ${tagText(frist)} abgelaufen – falls nicht abgegeben, beim Finanzamt melden.` : `Abgabe bis ${tagText(frist)}; Werte siehe ELSTER-Übersicht.`}` })
   }
   const konto = `konto-${vorjahr}`
   if (!erledigt[konto]) neu({ schluessel: konto, stufe: 'info', titel: `Kontoauszüge ${vorjahr} sichern`, text: 'Jahresauszüge bei der Bank herunterladen und aufbewahren (Vendo verarbeitet keine Kontoauszüge).', ziel: null, erledigbar: true })

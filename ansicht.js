@@ -1203,11 +1203,13 @@ export async function starten(ctx) {
       </div>`
   }
   // § 13b (Schritt 4.4): Monate mit Kennzahlen und Fälligkeit, Einstufung je Lieferant, Kennzeichen je Ausgaben-Beleg
-  const monatText = (mo) => mo ? `${mo.slice(5, 7)}.${mo.slice(0, 4)}` : '–'
+  const monatText = (mo) => !mo ? '–' : mo.includes('Q') ? `${mo.slice(5)}/${mo.slice(0, 4)}` : `${mo.slice(5, 7)}.${mo.slice(0, 4)}`
   function p13bHtml(u) {
+    const ein = u.einstellungen || { quartalAb: null, dauerfrist: false } // ältere Dienste ohne Einstellungen
+    const vor = u.vorschlag || null
     const betrag = (x) => x ? euro(x) : '–'
     const monate = u.monate.length ? `<table class="rn-steuer-tabelle" data-p13b-monate>
-        <thead><tr><th scope="col">Monat</th><th scope="col">Belege</th><th scope="col">Kz 46</th><th scope="col">Kz 47</th><th scope="col">Kz 84</th><th scope="col">Kz 85</th><th scope="col">fällig bis</th><th scope="col">Voranmeldung</th></tr></thead>
+        <thead><tr><th scope="col">Zeitraum</th><th scope="col">Belege</th><th scope="col">Kz 46</th><th scope="col">Kz 47</th><th scope="col">Kz 84</th><th scope="col">Kz 85</th><th scope="col">fällig bis</th><th scope="col">Voranmeldung</th></tr></thead>
         <tbody>${u.monate.map((x) => `<tr data-monat="${m(x.monat)}" class="${x.ueberfaellig ? 'rn-meldung-rot' : ''}">
           <th scope="row">${m(monatText(x.monat))}</th><td class="rn-zahl">${x.rechnungen}${x.steuerfrei ? ` <span class="leise">(${x.steuerfrei} steuerfrei)</span>` : ''}</td>
           <td class="rn-zahl">${betrag(x.eu.bemessung)}</td><td class="rn-zahl"><b>${betrag(x.eu.steuer)}</b></td><td class="rn-zahl">${betrag(x.drittland.bemessung)}</td><td class="rn-zahl"><b>${betrag(x.drittland.steuer)}</b></td>
@@ -1232,12 +1234,22 @@ export async function starten(ctx) {
       : '<p class="leise" data-p13b-keine>Noch keine eingelesenen Ausgaben-Belege. Rechnungen von Meta, Google, Shopify (Abo, Apps) und anderen ausländischen Anbietern über „PDF hinzufügen“ einlesen – Vendo erkennt den Reverse-Charge-Hinweis und rechnet die Steuer aus.</p>'
     return `<div class="rn-p13b" data-p13b>
         <div class="rn-usb-kopf"><strong>§ 13b – Umsatzsteuer auf Leistungen ausländischer Anbieter</strong><span class="leise">19 % vom Nettobetrag, zählt als Ausgabe</span></div>
-        <p class="leise">Für jeden Monat mit § 13b-Steuer ist auch als Kleinunternehmer eine Umsatzsteuer-Voranmeldung nötig (Abgabe und Zahlung bis zum 10. des Folgemonats). Kennzahlen laut Vordruck 2026: EU-Anbieter Kz 46 (netto) / 47 (Steuer), Anbieter außerhalb der EU Kz 84 / 85.</p>
+        <p class="leise">Für jeden Voranmeldungszeitraum mit § 13b-Steuer ist auch als Kleinunternehmer eine Umsatzsteuer-Voranmeldung nötig, dazu für das Jahr eine Umsatzsteuer-Jahreserklärung (§ 18 Abs. 4a UStG). Abgabe und Zahlung bis zum 10. nach Ablauf des Zeitraums, mit Dauerfristverlängerung einen Monat später. Kennzahlen laut Vordruck 2026: EU-Anbieter Kz 46 (netto) / 47 (Steuer), Anbieter außerhalb der EU Kz 84 / 85.</p>
+        <div class="rn-p13b-zeitraum" data-p13b-zeitraum>
+          <label>Voranmeldungszeitraum <select data-p13b-quartal aria-label="Voranmeldungszeitraum"><option value=""${ein.quartalAb ? '' : ' selected'}>monatlich</option>${(vor ? [vor.jahr - 2, vor.jahr - 1, vor.jahr, vor.jahr + 1] : []).map((j) => `<option value="${j}"${Number(ein.quartalAb) === j ? ' selected' : ''}>vierteljährlich ab ${j}</option>`).join('')}</select></label>
+          <label><input type="checkbox" data-p13b-dauerfrist ${ein.dauerfrist ? 'checked' : ''} /> Dauerfristverlängerung (§ 46 UStDV)</label>
+          ${vor ? `<span class="leise" data-p13b-vorschlag>Vorschlag ${m(vor.jahr)}: ${m(vor.grund)}${vor.befreiungMoeglich ? ' Bei höchstens 2.000 € Steuer im Vorjahr kann das Finanzamt auf Antrag von den Voranmeldungen befreien.' : ''} Einstellen, wie es das Finanzamt festgelegt hat.</span>` : ''}
+        </div>
         ${monate}${anbieter}${belege}
         <p class="leise">Feiertage sind bei der Frist nicht berücksichtigt. Ohne Gewähr – mit Steuerberater oder Finanzamt abstimmen.</p>
       </div>`
   }
   steuerFeld.addEventListener('change', async (e) => {
+    if (e.target.matches?.('[data-p13b-quartal], [data-p13b-dauerfrist]')) {
+      const z = e.target.closest('[data-p13b-zeitraum]')
+      try { await ctx.aufrufen('p13bEinstellungen', { quartalAb: z.querySelector('[data-p13b-quartal]').value || null, dauerfrist: z.querySelector('[data-p13b-dauerfrist]').checked }); await steuerZeichnen() } catch (f) { status(f.message) }
+      return
+    }
     try {
       const zeile = e.target.closest('[data-p13b-beleg]')
       if (zeile && e.target.matches('[data-p13b-aktiv], [data-p13b-monat], [data-p13b-eur]')) {

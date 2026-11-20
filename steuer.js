@@ -154,7 +154,9 @@ function p13bFall(r, eintrag = {}, anbieter = {}) {
   if (!r || r.art === 'einnahme') return null
   const aktiv = eintrag.aktiv === true || (eintrag.aktiv !== false && !!r.reverseCharge)
   if (!aktiv) return null
-  const vermutetFrei = !anbieter.einstufung && ZAHLUNGSDIENST.test(String(r.lieferant || ''))
+  // Steht Reverse-Charge ausdrücklich auf der Rechnung, behandelt der Anbieter die Leistung als steuerpflichtig (z. B. Mollie):
+  // dann keine Vermutung „steuerfrei“ (EuGH C-5/17 DPAS: befreit ist nur der Zahlungsvorgang selbst, nicht die Technik drumherum)
+  const vermutetFrei = !anbieter.einstufung && !r.reverseCharge && ZAHLUNGSDIENST.test(String(r.lieferant || ''))
   const steuerfrei = anbieter.einstufung === 'steuerfrei' || vermutetFrei
   const herkunft = anbieter.herkunft || r.herkunft || 'eu'
   const monat = MONAT.test(String(eintrag.monat || '')) ? eintrag.monat : String(r.datum || '').slice(0, 7) || null
@@ -168,22 +170,44 @@ function p13bFall(r, eintrag = {}, anbieter = {}) {
   }
 }
 
-// Fälligkeit: 10. Tag nach Ablauf des Monats; fällt er auf Samstag/Sonntag, der nächste Montag (§ 108 Abs. 3 AO).
-// Gesetzliche Feiertage sind nicht berücksichtigt.
-function faelligAm(monat) {
-  const [j, m] = monat.split('-').map(Number)
-  const d = new Date(Date.UTC(m === 12 ? j + 1 : j, m === 12 ? 0 : m, 10))
+// Voranmeldungszeitraum (§ 18 Abs. 2 UStG, geprüft 20.11.2026): Kalendervierteljahr; Kalendermonat, wenn die Steuer des
+// Vorjahres mehr als 9.000 € betrug, und im Jahr der Aufnahme der Tätigkeit sowie im Folgejahr. Bis 2.000 € Vorjahressteuer kann
+// das Finanzamt befreien. Für Kleinunternehmer mit § 13b-Steuer gilt das ebenso (§ 18 Abs. 4a: Voranmeldungen nur für Zeiträume
+// mit § 13b-Steuer, dazu eine Steuererklärung für das Jahr). Maßgeblich ist, was das Finanzamt festgelegt hat (Einstellung).
+const GRENZE_MONATLICH = 9000
+const GRENZE_BEFREIUNG = 2000
+const PERIODE = /^(\d{4})-(?:(0[1-9]|1[0-2])|Q([1-4]))$/
+const periodeVon = (monat, quartalAb = null) => {
+  const j = Number(monat.slice(0, 4))
+  return quartalAb && j >= Number(quartalAb) ? `${j}-Q${Math.ceil(Number(monat.slice(5, 7)) / 3)}` : monat
+}
+function zeitraumVorschlag({ jahr, gruendungsjahr = null, vorjahrSteuer = 0 } = {}) {
+  jahr = Number(jahr)
+  if (gruendungsjahr && jahr <= Number(gruendungsjahr) + 1) return { zeitraum: 'monat', grund: `Jahr der Aufnahme der Tätigkeit (${gruendungsjahr}) oder Folgejahr: monatlich (§ 18 Abs. 2 Satz 4 UStG).` }
+  if (vorjahrSteuer > GRENZE_MONATLICH) return { zeitraum: 'monat', grund: `Steuer ${jahr - 1} über 9.000 €: monatlich (§ 18 Abs. 2 Satz 2 UStG).` }
+  return { zeitraum: 'quartal', grund: `Steuer ${jahr - 1} nicht über 9.000 €: vierteljährlich (§ 18 Abs. 2 Satz 1 UStG), sofern das Finanzamt nichts anderes festgelegt hat.`, befreiungMoeglich: vorjahrSteuer <= GRENZE_BEFREIUNG }
+}
+
+// Fälligkeit: 10. Tag nach Ablauf des Voranmeldungszeitraums (Monat oder Quartal), mit Dauerfristverlängerung (§ 46 UStDV)
+// einen Monat später; fällt er auf Samstag/Sonntag, der nächste Montag (§ 108 Abs. 3 AO). Feiertage sind nicht berücksichtigt.
+function faelligAm(periode, { dauerfrist = false } = {}) {
+  const t = PERIODE.exec(String(periode))
+  const j = Number(t[1])
+  const m = t[3] ? Number(t[3]) * 3 : Number(t[2]) // letzter Monat des Zeitraums (1–12)
+  const d = new Date(Date.UTC(j, m + (dauerfrist ? 1 : 0), 10))
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1)
   return d.toISOString().slice(0, 10)
 }
 
 // Monatsübersicht: faelle = [{ fall, lieferant, id }], angemeldet = { 'JJJJ-MM': { am: 'JJJJ-MM-TT' } }
-function p13bMonate(faelle = [], angemeldet = {}, { heute = new Date().toISOString().slice(0, 10) } = {}) {
+// Zeiträume: Feld „monat“ ist der Voranmeldungszeitraum (JJJJ-MM oder ab quartalAb JJJJ-Qn); angemeldet je Zeitraum.
+function p13bMonate(faelle = [], angemeldet = {}, { heute = new Date().toISOString().slice(0, 10), quartalAb = null, dauerfrist = false } = {}) {
   const monate = new Map()
   for (const { fall } of faelle) {
     if (!fall?.monat) continue
-    if (!monate.has(fall.monat)) monate.set(fall.monat, { monat: fall.monat, rechnungen: 0, steuerfrei: 0, eu: { bemessung: 0, steuer: 0 }, drittland: { bemessung: 0, steuer: 0 }, offenWaehrung: 0 })
-    const x = monate.get(fall.monat)
+    const p = periodeVon(fall.monat, quartalAb)
+    if (!monate.has(p)) monate.set(p, { monat: p, art: p.includes('Q') ? 'quartal' : 'monat', rechnungen: 0, steuerfrei: 0, eu: { bemessung: 0, steuer: 0 }, drittland: { bemessung: 0, steuer: 0 }, offenWaehrung: 0 })
+    const x = monate.get(p)
     x.rechnungen++
     if (fall.steuerfrei) { x.steuerfrei++; continue }
     if (fall.waehrungFehlt) { x.offenWaehrung++; continue }
@@ -194,11 +218,25 @@ function p13bMonate(faelle = [], angemeldet = {}, { heute = new Date().toISOStri
   return [...monate.values()].map((x) => {
     for (const k of ['eu', 'drittland']) { x[k].bemessung = rund(x[k].bemessung); x[k].steuer = rund(x[k].steuer) }
     const steuer = rund(x.eu.steuer + x.drittland.steuer)
-    const faellig = faelligAm(x.monat)
+    const faellig = faelligAm(x.monat, { dauerfrist })
     const am = angemeldet[x.monat]?.am || null
     const pflicht = steuer > 0 || x.offenWaehrung > 0
     return { ...x, steuer, faellig, angemeldet: am, pflicht, ueberfaellig: pflicht && !am && heute > faellig }
   }).sort((a, b) => b.monat.localeCompare(a.monat))
 }
 
-module.exports = { umsatzJahre, grenzwerte, posten, p13bFall, p13bMonate, faelligAm, GRENZE_VORJAHR, GRENZE_LAUFEND, GRENZE_EU, P13B_SATZ }
+// Umsatzsteuer-Jahreserklärung (§ 18 Abs. 3 und 4a UStG): Pflicht für jedes Jahr mit § 13b-Steuer oder mit Regelbesteuerung.
+// monate: aus p13bMonate; regelJahre: Jahre mit einem Regelbesteuerungs-Zeitraum laut „Meine Angaben“.
+function ustJahre(monate = [], regelJahre = []) {
+  const jahre = new Map()
+  const jahr = (j) => { if (!jahre.has(j)) jahre.set(j, { jahr: j, eu: { bemessung: 0, steuer: 0 }, drittland: { bemessung: 0, steuer: 0 }, steuer: 0, regel: false }); return jahre.get(j) }
+  for (const m of monate) {
+    const x = jahr(m.monat.slice(0, 4))
+    for (const k of ['eu', 'drittland']) { x[k].bemessung = rund(x[k].bemessung + m[k].bemessung); x[k].steuer = rund(x[k].steuer + m[k].steuer) }
+    x.steuer = rund(x.steuer + m.steuer)
+  }
+  for (const j of regelJahre) jahr(String(j)).regel = true
+  return [...jahre.values()].map((x) => ({ ...x, pflicht: x.steuer > 0 || x.regel })).sort((a, b) => b.jahr.localeCompare(a.jahr))
+}
+
+module.exports = { ustJahre, zeitraumVorschlag, periodeVon, GRENZE_MONATLICH, GRENZE_BEFREIUNG, umsatzJahre, grenzwerte, posten, p13bFall, p13bMonate, faelligAm, GRENZE_VORJAHR, GRENZE_LAUFEND, GRENZE_EU, P13B_SATZ }

@@ -42,3 +42,13 @@ test('elster: Anlage nach Einkunftsart, nur Kennzahlen mit Betrag, Ehegatte nur 
   assert.equal(p.elster({ firma: { einkunftsart: 'selbstaendig' } }).gewinn.anlage, 'Anlage S')
   assert.equal(p.elster({}).gewinn.wert, null)
 })
+
+test('ELSTER-Übersicht: Umsatzsteuererklärung nur bei Pflicht, mit § 13b-Beträgen (Plan-Abschnitt 5)', () => {
+  const { elster } = require('../persoenlich.js')
+  const ust = { pflicht: true, eu: { bemessung: 100, steuer: 19 }, drittland: { bemessung: 0, steuer: 0 } }
+  const u = elster({ jahr: '2025', euer: { kz111: 500, gewinn: 300 }, ust })
+  assert.deepEqual(u.umsatzsteuer.map((z) => z.wert), [100, 19])
+  assert.match(u.umsatzsteuer[0].label, /übrigen EU-Gebiet – Bemessungsgrundlage/)
+  assert.equal(elster({ jahr: '2025', ust: { ...ust, pflicht: false } }).umsatzsteuer, null)
+  assert.equal(elster({ jahr: '2025' }).umsatzsteuer, null)
+})

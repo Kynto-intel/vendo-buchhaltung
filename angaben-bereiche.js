@@ -91,6 +91,7 @@ export function angabenBereicheErstellen(container, { aufrufen = null, menueAnwe
       <table class="rn-ang-tabelle"><tbody>${zeile(u.gewinn.label, u.gewinn.wert == null ? '' : euro(u.gewinn.wert))}${zeile('Steuernummer', u.firma.steuernummer)}${zeile('Finanzamt', u.firma.finanzamt)}</tbody></table>
       <h3 class="rn-ang-unter">Anlage EÜR ${esc(u.jahr || '')}</h3>
       ${u.euer.length ? `<table class="rn-ang-tabelle"><tbody>${u.euer.map((z) => zeile(`${z.kz} ${z.label}`, euro(z.wert))).join('')}</tbody></table>` : '<p class="leise">Für dieses Jahr gibt es keine Beträge.</p>'}
+      ${u.umsatzsteuer ? `<h3 class="rn-ang-unter">Umsatzsteuererklärung ${esc(u.jahr || '')} (USt 2 A)</h3><p class="leise">Pflicht, weil im Jahr § 13b-Steuer oder Regelbesteuerung anfiel (§ 18 Abs. 3 und 4a UStG). Bereits gezahlte Vorauszahlungen werden angerechnet.</p>${u.umsatzsteuer.length ? `<table class="rn-ang-tabelle"><tbody>${u.umsatzsteuer.map((z) => zeile(z.label, euro(z.wert))).join('')}</tbody></table>` : ''}` : ''}
     </div>`
     elsterGeladen = true
   }

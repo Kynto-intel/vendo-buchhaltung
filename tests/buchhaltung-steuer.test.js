@@ -159,3 +159,40 @@ test('§ 13b-Erkennung im Parser: Reverse-Charge-Begriffe, ausländische USt-IdN
   const d = parseRechnung(text(['Autoliquidation']))
   assert.equal(d.reverseCharge, true)
 })
+
+// ---------- Plan-Abschnitt 5 (20.11.2026): Voranmeldungszeitraum, Dauerfristverlängerung, Jahreserklärung, Gebühren ----------
+const st = require('../steuer.js')
+
+test('Voranmeldungszeitraum: Quartal ab Jahr, Fälligkeit nach Quartalsende, Dauerfristverlängerung (§ 18 Abs. 2 UStG, § 46 UStDV)', () => {
+  assert.deepEqual(['2026-Q1', '2026-Q3', '2026-Q4'].map((p) => faelligAm(p)), ['2026-04-10', '2026-10-12', '2027-01-11'])
+  assert.equal(faelligAm('2026-09', { dauerfrist: true }), '2026-11-10', 'Monat + Dauerfrist: einen Monat später')
+  assert.equal(faelligAm('2026-Q4', { dauerfrist: true }), '2027-02-10')
+  assert.deepEqual(['2025-11', '2026-02', '2026-12'].map((m) => st.periodeVon(m, 2026)), ['2025-11', '2026-Q1', '2026-Q4'], 'vor dem Umstellungsjahr bleibt der Monat')
+  const fall = (datum, netto) => ({ fall: p13bFall(ausgabe('Meta Platforms Ireland Limited', datum, netto), { aktiv: true }) })
+  const z = p13bMonate([fall('2025-12-05', 10), fall('2026-01-10', 100), fall('2026-03-02', 50)], { '2025-12': { am: '2026-01-09' } }, { heute: '2026-04-20', quartalAb: 2026 })
+  assert.deepEqual(z.map((x) => [x.monat, x.art, x.steuer, x.faellig, x.ueberfaellig, x.angemeldet]), [['2026-Q1', 'quartal', 28.5, '2026-04-10', true, null], ['2025-12', 'monat', 1.9, '2026-01-12', false, '2026-01-09']])
+})
+
+test('Vorschlag zum Voranmeldungszeitraum: Gründungsjahr und Folgejahr monatlich, über 9.000 € monatlich, sonst Quartal', () => {
+  assert.equal(st.zeitraumVorschlag({ jahr: 2024, gruendungsjahr: 2023 }).zeitraum, 'monat')
+  assert.equal(st.zeitraumVorschlag({ jahr: 2025, gruendungsjahr: 2023 }).zeitraum, 'quartal')
+  assert.equal(st.zeitraumVorschlag({ jahr: 2026, vorjahrSteuer: 9000.01 }).zeitraum, 'monat')
+  const q = st.zeitraumVorschlag({ jahr: 2026, vorjahrSteuer: 150 })
+  assert.deepEqual([q.zeitraum, q.befreiungMoeglich], ['quartal', true])
+  assert.match(q.grund, /§ 18 Abs\. 2 Satz 1 UStG/)
+  assert.equal(st.zeitraumVorschlag({ jahr: 2026, vorjahrSteuer: 2500 }).befreiungMoeglich, false)
+})
+
+test('Umsatzsteuer-Jahreserklärung: Pflicht bei § 13b-Steuer oder Regelbesteuerung im Jahr (§ 18 Abs. 4a UStG)', () => {
+  const fall = (lieferant, datum, netto, anbieter = {}) => ({ fall: p13bFall(ausgabe(lieferant, datum, netto), { aktiv: true }, anbieter) })
+  const monate = p13bMonate([fall('Meta Platforms Ireland Limited', '2025-03-01', 100), fall('Acme Inc.', '2025-04-01', 10, { herkunft: 'drittland' }), fall('Viva Wallet', '2026-02-01', 5)], {}, { heute: '2026-05-01' })
+  const j = st.ustJahre(monate, [2024])
+  assert.deepEqual(j.map((x) => [x.jahr, x.pflicht, x.steuer, x.eu.bemessung, x.drittland.steuer, x.regel]), [['2026', false, 0, 0, 0, false], ['2025', true, 20.9, 100, 1.9, false], ['2024', true, 0, 0, 0, true]])
+})
+
+test('Gebühren: ausdrücklicher Reverse-Charge-Hinweis hebt die Vermutung „steuerfrei“ für Zahlungsdienste auf', () => {
+  const mitHinweis = p13bFall(ausgabe('Viva Wallet', '2026-09-15', 12, { reverseCharge: true }), {})
+  assert.deepEqual([mitHinweis.vermutetFrei, mitHinweis.steuerfrei, mitHinweis.steuer], [false, false, 2.28])
+  const ohne = p13bFall(ausgabe('Viva Wallet', '2026-09-15', 12), { aktiv: true })
+  assert.deepEqual([ohne.vermutetFrei, ohne.steuer], [true, 0])
+})

@@ -109,3 +109,14 @@ test('Erinnerungen (Schritt 8.5): Archiv versiegeln, Verfahrensdokumentation bes
   assert.match(januar[0].text, /§ 19 UStG.*Aufbewahrungsfristen.*E-Rechnung.*§ 13b.*Datenschutz.*Protokoll im Archiv/)
   assert.equal(aufgaben({ heute: '2027-02-01', erledigt: { 'euer-2026': 'x', 'konto-2026': 'x' } })[0].stufe, 'gelb', 'nach Januar gelb')
 })
+
+test('Aufgabe Umsatzsteuer-Jahreserklärung (Plan-Abschnitt 5): nur abgeschlossene Jahre mit Pflicht, Frist 31.07., abhakbar', () => {
+  const ust = [{ jahr: '2026', pflicht: true, steuer: 5 }, { jahr: '2025', pflicht: true, steuer: 20.9, regel: false }, { jahr: '2024', pflicht: true, steuer: 0, regel: true }, { jahr: '2023', pflicht: false, steuer: 0 }]
+  const erledigt = { 'euer-2025': 'x', 'konto-2025': 'x', 'regelcheck-2026': 'x', 'ustje-2024': '2025-07-01' }
+  const a = aufgaben({ heute: '2026-06-15', ustJahre: ust, erledigt })
+  assert.deepEqual(a.map((x) => [x.schluessel, x.stufe, x.frist, x.ziel, x.erledigbar]), [['ustje-2025', 'gelb', '2026-07-31', 'steuer', true]])
+  assert.match(a[0].text, /§ 13b-Steuer 2025: 20,90 €\. Auch als Kleinunternehmer Pflicht \(§ 18 Abs\. 4a UStG\)\. Abgabe bis 31\.07\.2026/)
+  const spaet = aufgaben({ heute: '2026-08-01', ustJahre: ust, erledigt: { ...erledigt, 'ustje-2024': undefined } })
+  assert.deepEqual(spaet.map((x) => [x.schluessel, x.stufe]), [['ustje-2024', 'rot'], ['ustje-2025', 'rot']])
+  assert.match(spaet[0].text, /Regelbesteuerung.*Frist 31\.07\.2025 abgelaufen/)
+})

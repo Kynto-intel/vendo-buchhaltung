@@ -341,7 +341,14 @@ module.exports = (ctx) => {
     })
     const mit = faelle.filter((x) => x.fall)
     const lieferanten = [...new Set(mit.map((x) => x.lieferant).filter(Boolean))].sort().map((l) => ({ lieferant: l, einstufung: anbieter[l]?.einstufung || null, herkunft: anbieter[l]?.herkunft || null, vermutetFrei: mit.some((x) => x.lieferant === l && x.fall.vermutetFrei) }))
-    return { faelle, monate: steuer.p13bMonate(mit, d.p13bMonate || {}, { heute }), lieferanten, heute }
+    const einstellungen = p13bEinstellungenLesen(d)
+    const monate = steuer.p13bMonate(mit, d.p13bMonate || {}, { heute, ...einstellungen })
+    // Vorschlag für den Voranmeldungszeitraum des laufenden Jahres (§ 18 Abs. 2 UStG); Vorjahressteuer aus den § 13b-Zeiträumen
+    const jahr = Number(heute.slice(0, 4))
+    const vorjahrSteuer = monate.filter((m) => m.monat.startsWith(String(jahr - 1))).reduce((s, m) => s + m.steuer, 0)
+    const gd = String((d.angaben || {}).gruendungsdatum || '')
+    const gruendungsjahr = /^\d{4}/.test(gd) ? Number(gd.slice(0, 4)) : null
+    return { faelle, monate, lieferanten, heute, einstellungen, vorschlag: { jahr, ...steuer.zeitraumVorschlag({ jahr, gruendungsjahr, vorjahrSteuer }) } }
   }
   ctx.bereitstellen('p13bSetzen', (id, angaben = {}) => {
     id = String(id || '')
@@ -370,8 +377,19 @@ module.exports = (ctx) => {
     ctx.datenSpeichern({ ...d, p13bAnbieter: alle })
     return alle[name] || null
   })
+  // Voranmeldungszeitraum und Dauerfristverlängerung, wie vom Finanzamt festgelegt (Plan-Abschnitt 5, § 18 Abs. 2 UStG, § 46 UStDV)
+  function p13bEinstellungenLesen(d = ctx.datenLaden()) { const e = d.p13bEinstellungen || {}; return { quartalAb: e.quartalAb || null, dauerfrist: !!e.dauerfrist } }
+  ctx.bereitstellen('p13bEinstellungen', (neu) => {
+    const d = ctx.datenLaden()
+    if (neu === undefined) return p13bEinstellungenLesen(d)
+    const q = neu?.quartalAb == null || neu.quartalAb === '' ? null : Number(neu.quartalAb)
+    if (q !== null && !(Number.isInteger(q) && q >= 2000 && q <= 2099)) throw new Error('Bitte ein Jahr wie 2026 angeben.')
+    const e = { quartalAb: q, dauerfrist: !!neu?.dauerfrist }
+    ctx.datenSpeichern({ ...d, p13bEinstellungen: e })
+    return e
+  })
   ctx.bereitstellen('p13bAngemeldet', (monat, am) => {
-    if (!MONAT_RE.test(String(monat || ''))) throw new Error('Ungültiger Monat.')
+    if (!MONAT_RE.test(String(monat || '')) && !/^\d{4}-Q[1-4]$/.test(String(monat || ''))) throw new Error('Ungültiger Monat.')
     if (am != null && !TAG_RE.test(String(am))) throw new Error('Ungültiges Datum.')
     const d = ctx.datenLaden()
     const alle = { ...(d.p13bMonate || {}) }
@@ -467,7 +485,8 @@ module.exports = (ctx) => {
     const firma = { ...angaben.standardwerte(), ...(ctx.datenLaden().angaben || {}) }
     let person = null
     try { person = persoenlichLesen() } catch { /* Windows-Speicher gerade nicht verfügbar: Übersicht ohne persönliche Angaben */ }
-    return { jahre, ...persoenlich.elster({ person: person || {}, firma, euer: euer.find((e) => e.jahr === jahr) || null, jahr }) }
+    const ust = ustJahreVon(ctx.datenLaden(), p13bDaten(heuteAus(optionen)).monate).find((u) => u.jahr === jahr) || null
+    return { jahre, ...persoenlich.elster({ person: person || {}, firma, euer: euer.find((e) => e.jahr === jahr) || null, jahr, ust }) }
   })
 
   // ---------- Zeitstempel (Schritt 1.7) ----------
@@ -744,6 +763,17 @@ module.exports = (ctx) => {
   // ---------- Dashboard „Übersicht“ (Schritt 4.5, Plan 7.7/8.4) ----------
   // EÜR je Jahr und Aufgaben & Fristen aus den vorhandenen Bausteinen (Einnahmen, Ausgaben, § 13b, Archiv-Status, Angaben).
   // Erledigte Jahresaufgaben unter „aufgabenErledigt“, bereits gemeldete unter „aufgabenGemeldet“ (je Tag einmal).
+  // Jahre mit Pflicht zur Umsatzsteuer-Jahreserklärung: § 13b-Steuer oder ein Regelbesteuerungs-Zeitraum laut „Meine Angaben“
+  function ustJahreVon(d, monate) {
+    const regel = new Set()
+    for (const z of (d.angaben || {}).steuerzeitraeume || []) {
+      if (z.art !== 'regel') continue
+      const von = Number(String(z.von || '2000').slice(0, 4))
+      const bis = Number(String(z.bis || heuteBerlin()).slice(0, 4))
+      for (let j = von; j <= bis; j++) regel.add(j)
+    }
+    return steuer.ustJahre(monate, [...regel])
+  }
   function dashboardDaten(heute) {
     const d = ctx.datenLaden()
     const einnahmen = alleEinnahmen()
@@ -754,13 +784,13 @@ module.exports = (ctx) => {
     try { archivStand = archivStatusDaten() } catch { /* Archiv nicht lesbar: dann ohne Archiv-Aufgaben */ }
     const liste = uebersicht.aufgaben({
       heute, pflichtFehlen: profil.pruefung().fehlend, belegeWartend: bestellungen.eintraege().filter((e) => !e.beleg).length,
-      archiv: archivStand, p13bMonate: p13b.monate, waechter, statusPasst, erledigt: d.aufgabenErledigt || {}, verfahren: verfahrenZustand(d)
+      archiv: archivStand, p13bMonate: p13b.monate, waechter, statusPasst, erledigt: d.aufgabenErledigt || {}, verfahren: verfahrenZustand(d), ustJahre: ustJahreVon(d, p13b.monate)
     })
     return { heute, aufgaben: liste, erledigt: d.aufgabenErledigt || {}, euer: uebersicht.euerJahre({ einnahmen, ausgaben, p13bMonate: p13b.monate }) }
   }
   ctx.bereitstellen('dashboard', (optionen = {}) => dashboardDaten(heuteAus(optionen)))
   ctx.bereitstellen('aufgabeErledigt', (schluessel, am) => {
-    if (!/^(euer|konto|regelcheck)-\d{4}$/.test(String(schluessel || ''))) throw new Error('Diese Aufgabe kann nicht abgehakt werden.')
+    if (!/^(euer|konto|regelcheck|ustje)-\d{4}$/.test(String(schluessel || ''))) throw new Error('Diese Aufgabe kann nicht abgehakt werden.')
     if (am != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(am))) throw new Error('Ungültiges Datum.')
     const d = ctx.datenLaden()
     const alle = { ...(d.aufgabenErledigt || {}) }

@@ -697,3 +697,18 @@ test('Datenbank-Dienste ohne Datenbank (Plan 11.2): melden „aus“ statt zu sc
   assert.equal((await app.services.get('datenbankAufbauen')()).ok, false)
   assert.equal(await app.services.get('datenbankJahre')(), null)
 })
+
+test('§ 13b-Einstellungen (Plan-Abschnitt 5): Quartal ab Jahr und Dauerfristverlängerung speichern, Vorschlag mitliefern', () => {
+  const app = createPluginHarness()
+  assert.deepEqual(app.services.get('p13bEinstellungen')(), { quartalAb: null, dauerfrist: false })
+  assert.deepEqual(app.services.get('p13bEinstellungen')({ quartalAb: '2026', dauerfrist: true }), { quartalAb: 2026, dauerfrist: true })
+  assert.deepEqual(app.storedData().p13bEinstellungen, { quartalAb: 2026, dauerfrist: true })
+  assert.throws(() => app.services.get('p13bEinstellungen')({ quartalAb: 'bald' }), /Jahr wie 2026/)
+  const u = app.services.get('p13bUebersicht')({ heute: '2026-11-20' })
+  assert.deepEqual(u.einstellungen, { quartalAb: 2026, dauerfrist: true })
+  assert.equal(u.vorschlag.jahr, 2026)
+  assert.match(u.vorschlag.grund, /§ 18 Abs\. 2/)
+  assert.equal(app.services.get('p13bAngemeldet')('2026-Q3', '2026-10-05').am, '2026-10-05')
+  assert.throws(() => app.services.get('aufgabeErledigt')('ustje-20x5', '2026-01-01'), /kann nicht abgehakt/)
+  assert.equal(app.services.get('aufgabeErledigt')('ustje-2025', '2026-07-01'), '2026-07-01')
+})

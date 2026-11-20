@@ -330,3 +330,4 @@ tr.rn-entfernt td, li.rn-entfernt { text-decoration: line-through; }
 /* Verfahrensdokumentation und Datenschutz (Schritt 7.2/7.3) */
 .rn-ang-text { max-height: 420px; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.45; border: 1px solid var(--rahmen); border-radius: 8px; }
 .rn-ang-liste th, .rn-ang-liste td:last-child { width: auto; white-space: normal; }
+.rn-p13b-zeitraum { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0; font-size: 13px; }

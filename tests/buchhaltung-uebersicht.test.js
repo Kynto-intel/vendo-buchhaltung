@@ -34,9 +34,9 @@ test('EÜR je Jahr: Kz 111 Kleinunternehmer, Kz 112/140 in der Regelbesteuerung,
     ]
   })
   assert.deepEqual(jahre.map((j) => j.jahr), ['2026', '2025', '2024'])
-  assert.deepEqual(jahre.find((j) => j.jahr === '2024'), { jahr: '2024', kz111: 100, kz112: 20, kz140: 3.8, kz100: 11.9, sonstige: 0, kz186: 0, einnahmen: 123.8, ausgaben: 11.9, gewinn: 111.9 })
-  assert.deepEqual(jahre.find((j) => j.jahr === '2025'), { jahr: '2025', kz111: 60, kz112: 0, kz140: 0, kz100: 0, sonstige: 30, kz186: 5.7, einnahmen: 60, ausgaben: 35.7, gewinn: 24.3 })
-  assert.deepEqual(jahre.find((j) => j.jahr === '2026'), { jahr: '2026', kz111: -10, kz112: 0, kz140: 0, kz100: 0, sonstige: 0, kz186: 19, einnahmen: -10, ausgaben: 19, gewinn: -29 })
+  assert.deepEqual(jahre.find((j) => j.jahr === '2024'), { jahr: '2024', kz111: 100, kz112: 20, kz140: 3.8, kz100: 11.9, sonstige: 0, gebuehren: 0, kz186: 0, einnahmen: 123.8, ausgaben: 11.9, gewinn: 111.9 })
+  assert.deepEqual(jahre.find((j) => j.jahr === '2025'), { jahr: '2025', kz111: 60, kz112: 0, kz140: 0, kz100: 0, sonstige: 30, gebuehren: 0, kz186: 5.7, einnahmen: 60, ausgaben: 35.7, gewinn: 24.3 })
+  assert.deepEqual(jahre.find((j) => j.jahr === '2026'), { jahr: '2026', kz111: -10, kz112: 0, kz140: 0, kz100: 0, sonstige: 0, gebuehren: 0, kz186: 19, einnahmen: -10, ausgaben: 19, gewinn: -29 })
 })
 
 test('Aufgaben: Stufen, Reihenfolge, Ziele, § 13b-Monate, Archiv, Steuerstatus, EÜR-Frist mit Wochenende, erledigte Jahresaufgaben (Schritt 4.5)', () => {
@@ -75,4 +75,14 @@ test('Aufgaben: Stufen, Reihenfolge, Ziele, § 13b-Monate, Archiv, Steuerstatus,
   assert.deepEqual(st.map((a) => [a.schluessel, a.stufe]), [['steuerstatus', 'rot']])
   const gw = aufgaben({ heute: '2026-03-01', waechter: { stufe: 'orange', meldungen: [{ text: 'Ab 01.01.2027 Regelbesteuerung' }] }, statusPasst: true, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x' } })
   assert.deepEqual(gw.map((a) => [a.schluessel, a.stufe, a.text]), [['grenzwerte', 'gelb', 'Ab 01.01.2027 Regelbesteuerung']])
+})
+
+test('EÜR: Gebühren stecken in den übrigen Ausgaben und werden als „davon“ ausgewiesen (Schritt 4.8)', () => {
+  const jahre = euerJahre({ ausgaben: [
+    { art: 'ausgabe', gebuehr: true, anbieter: 'shopify-payments', datum: '2024-04-01', wirksam: 1.02 },
+    { art: 'ausgabe', anbieter: 'shopify', datum: '2024-05-07', wirksam: 28.5, gebuehren: 1.5 },
+    { art: 'ausgabe', anbieter: 'shirtigo-api', datum: '2024-05-08', wirksam: 10 }
+  ] })
+  const j = jahre.find((x) => x.jahr === '2024')
+  assert.deepEqual([j.sonstige, j.gebuehren, j.kz100, j.ausgaben], [29.52, 2.52, 10, 39.52])
 })

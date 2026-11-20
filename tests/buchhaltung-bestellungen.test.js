@@ -290,7 +290,7 @@ test('Alter Archivcode ist entfernt (Schritt 1.5)', () => {
   assert.equal(/_Vendo-Archiv|zuruecksetzen|index\.jsonl|sync\.json/.test(quelle.replace(/^\/\/.*$/gm, '')), false)
   const { b, wurzel } = laden()
   aufraeumen(wurzel)
-  assert.deepEqual(Object.keys(b).sort(), ['WURZEL', 'abgleichen', 'ansichtsKopie', 'belegOrdner', 'beschaeftigt', 'einrichten', 'eintraege', 'neuBerechnen', 'neufassungErzeugen', 'neufassungPlanen', 'neufassungVorschau', 'orte', 'pdfPfad', 'steuerBefund', 'warten', 'zahlungAus', 'zuRechnung'])
+  assert.deepEqual(Object.keys(b).sort(), ['WURZEL', 'abgleichen', 'ansichtsKopie', 'belegOrdner', 'beschaeftigt', 'einrichten', 'eintraege', 'gebuehrenAus', 'gebuehrenEintraege', 'neuBerechnen', 'neufassungErzeugen', 'neufassungPlanen', 'neufassungVorschau', 'orte', 'pdfPfad', 'steuerBefund', 'warten', 'zahlungAus', 'zuRechnung'])
 })
 
 test('steuerBefund: Shopify-Steuer je Bestellung aus der neuesten Archivfassung, Berliner Tag, ohne Kundendaten (Schritt 2.2)', async (t) => {
@@ -433,4 +433,61 @@ test('Neufassung (Phase 5.3): nur Belege mit falschem Steuerausweis, alte Fassun
   assert.equal(b.eintraege().find((e) => e.id === 's9601').beleg.pdf, neu.datei, 'Anzeige nutzt die Neufassung')
   assert.deepEqual(b.neufassungPlanen(grenze).steuer, [], 'danach nichts mehr offen')
   assert.ok(a.integritaet().ok, 'Hash-Kette intakt')
+})
+
+// ---------- Schritt 4.8: Gebühren von Shopify Payments ----------
+const gebuehr = (betrag, steuer = 0, typ = 'payment_processing') => ({ amount: { amount: String(betrag), currencyCode: 'EUR' }, flatFee: { amount: '0.25', currencyCode: 'EUR' }, rate: '0.015', taxAmount: { amount: String(steuer), currencyCode: 'EUR' }, type: typ })
+const spZahlung = (fees, overrides = {}) => ({ id: 'gid://synthetic/OrderTransaction/1', kind: 'SALE', status: 'SUCCESS', test: false, processedAt: '2024-03-31T22:30:00Z', createdAt: '2024-03-31T22:30:00Z', gateway: 'shopify_payments', fees, ...overrides })
+
+test('gebuehrenAus: nur erfolgreiche echte Zahlungen, Steuer auf die Gebühr, Berliner Tag (Schritt 4.8)', () => {
+  const { b, wurzel } = laden()
+  aufraeumen(wurzel)
+  const g = b.gebuehrenAus([spZahlung([gebuehr(0.92, 0.1)]), spZahlung([gebuehr(5)], { status: 'FAILURE' }), spZahlung([gebuehr(7)], { test: true }), spZahlung([gebuehr(-0.2)], { kind: 'REFUND', processedAt: '2024-05-02T10:00:00Z' })])
+  assert.deepEqual([g.summe, g.steuer, g.brutto, g.datum, g.posten.length, g.fremd], [0.72, 0.1, 0.82, '2024-04-01', 2, false])
+  assert.equal(g.posten[1].art, 'REFUND')
+  assert.deepEqual(b.gebuehrenAus(null).posten, [])
+  assert.equal(b.gebuehrenAus([spZahlung([{ ...gebuehr(1), amount: { amount: '1', currencyCode: 'USD' } }])]).fremd, true)
+})
+
+test('Abgleich holt Gebühren nur für Shopify Payments, archiviert ohne Kundendaten, merkt leere Antworten (Schritt 4.8)', async (t) => {
+  const sp = (nr) => bestellung(nr, { paymentGatewayNames: ['shopify_payments'], transactions: [spZahlung(undefined, { id: undefined })].map(({ fees, id, ...x }) => ({ ...x, manualPaymentGateway: false, amountSet: geld(44.9) })) })
+  const mit = sp(9101)
+  const ohne = sp(9102)
+  const fremd = bestellung(9103)
+  const { b, wurzel, a, zahlungsAbfragen, abfrageTexte, stand } = laden([[mit, ohne, fremd], []], {
+    zahlungsDaten: { [mit.id]: { id: mit.id, name: mit.name, transactions: [spZahlung([gebuehr(0.92, 0.1)])] }, [ohne.id]: { id: ohne.id, name: ohne.name, transactions: [spZahlung([])] } }
+  })
+  t.after(() => aufraeumen(wurzel))
+  const erg = await b.abgleichen()
+  assert.equal(erg.gebuehrenNeu, 1)
+  assert.ok(erg.hinweise.some((h) => /für 1 Bestellung\(en\) mit Shopify Payments keine Gebühren/.test(h)))
+  assert.deepEqual(zahlungsAbfragen, [[mit.id, ohne.id]], 'nur Shopify-Payments-Bestellungen abgefragt')
+  assert.ok(abfrageTexte.some((q) => /fees \{ amount/.test(q)))
+  const e = a.eintraege().filter((x) => x.art === 'shopify-gebuehren')
+  assert.deepEqual(e.map((x) => [x.meta.bestellung, x.meta.version]), [['9101', 1]])
+  const inhalt = fs.readFileSync(a.pfad(e[0]), 'utf8')
+  assert.ok(!/testkunde@example\.test|Test Kunde|Teststraße/.test(inhalt), 'keine Kundendaten im Gebührendatensatz')
+  const liste = b.gebuehrenEintraege()
+  assert.equal(liste.length, 1)
+  const r = liste[0].rechnung
+  assert.deepEqual([liste[0].id, r.art, r.gebuehr, r.referenz, r.datum, r.wirksam, r.summen.mwst, r.lieferant], ['g9101', 'ausgabe', true, '9101', '2024-04-01', 1.02, 0.1, 'Shopify Payments'])
+  assert.equal(r.positionen[0].steuer, 0.1)
+  assert.deepEqual(stand.lesen().gebuehrenLeer, { 9102: 1 })
+  assert.ok(stand.lesen().seit, 'Abgleichstand bleibt erhalten')
+
+  await b.abgleichen() // nichts Neues: keine erneute Gebührenabfrage
+  assert.equal(zahlungsAbfragen.length, 1)
+  assert.deepEqual(stand.lesen().gebuehrenLeer, { 9102: 1 }, 'leere Antworten bleiben gemerkt')
+})
+
+test('Abgleich bleibt stabil, wenn Shopify die Gebühren verweigert (Schritt 4.8)', async (t) => {
+  const mit = bestellung(9111, { paymentGatewayNames: ['shopify_payments'], transactions: [{ kind: 'SALE', status: 'SUCCESS', test: false, processedAt: '2026-04-01T07:00:00Z', createdAt: '2026-04-01T07:00:00Z', gateway: 'shopify_payments', manualPaymentGateway: false, amountSet: geld(44.9) }] })
+  const daten = {}
+  Object.defineProperty(daten, mit.id, { get() { throw new Error('Access denied for fees field') } })
+  const { b, wurzel, a } = laden([[mit]], { zahlungsDaten: daten })
+  t.after(() => aufraeumen(wurzel))
+  const erg = await b.abgleichen()
+  assert.equal(erg.neu, 1)
+  assert.ok(erg.hinweise.some((h) => /Gebühren von Shopify Payments konnten nicht geholt werden: Access denied/.test(h)))
+  assert.equal(a.eintraege().filter((x) => x.art === 'shopify-gebuehren').length, 0)
 })

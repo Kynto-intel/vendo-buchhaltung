@@ -112,11 +112,15 @@ function shopify({ zeilen, flach }) {
       letzte = null
     } else {
       if (gruppe) gruppe.kinder++
-      letzte = { typ: 'abo', bezeichnung: name, gruppe: gruppe?.name || null, menge: 1, einzelpreis: betrag, gesamt: betrag }
+      const gebuehr = /transaktionsgeb|transaction fee/i.test(`${gruppe?.name || ''} ${name}`) // 4.8: Gebühren für fremde Zahlungsanbieter
+      letzte = { typ: gebuehr ? 'gebuehr' : 'abo', bezeichnung: name, gruppe: gruppe?.name || null, menge: 1, einzelpreis: betrag, gesamt: betrag }
       r.positionen.push(letzte)
     }
   }
   abschliessen()
+  for (const p of r.positionen) if (/transaktionsgeb|transaction fee/i.test(p.bezeichnung)) p.typ = 'gebuehr'
+  const geb = r.positionen.filter((p) => p.typ === 'gebuehr').reduce((s, p) => s + p.gesamt, 0)
+  if (geb) r.gebuehren = Math.round(geb * 100) / 100 // netto; in der EÜR „davon Gebühren“
 
   const zw = re('Zwischensumme\\s+{GN}\\s*€').exec(flach)
   const ust = re('USt\\.\\s*(\\d+(?:,\\d+)?)\\s*%\\*?\\s+{GN}\\s*€').exec(flach)

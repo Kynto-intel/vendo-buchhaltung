@@ -87,7 +87,8 @@ function elster({ person = {}, firma = {}, euer = null, jahr } = {}) {
   const euerZeilen = [
     ['Kz 111', 'Betriebseinnahmen als Kleinunternehmer', e.kz111], ['Kz 112', 'Umsatzsteuerpflichtige Betriebseinnahmen (netto)', e.kz112],
     ['Kz 140', 'Vereinnahmte Umsatzsteuer', e.kz140], ['Kz 100', 'Waren, Rohstoffe und Hilfsstoffe', e.kz100],
-    ['Kz 186', 'An das Finanzamt gezahlte Umsatzsteuer', e.kz186], ['–', 'Übrige Ausgaben (eingelesene Belege, Kennzahl je Art selbst zuordnen)', e.sonstige]
+    ['Kz 186', 'An das Finanzamt gezahlte Umsatzsteuer', e.kz186], ['–', 'Übrige Ausgaben (eingelesene Belege, Kennzahl je Art selbst zuordnen)', e.sonstige],
+    ['–', 'davon Gebühren für Zahlungen und Shopify-Transaktionen (Kz 183, übrige Betriebsausgaben)', e.gebuehren]
   ].filter(([, , wert]) => Number(wert))
   return {
     jahr, hinweis: 'Zum Abtippen in Mein ELSTER. Ohne Gewähr, keine Steuerberatung. Leere Felder fehlen in „Meine Angaben“.',

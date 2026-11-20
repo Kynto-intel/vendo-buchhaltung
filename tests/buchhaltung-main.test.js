@@ -83,7 +83,7 @@ function createPluginHarness({ failOnSave = false, initialData = { dateien: [] }
     ['@tesseract.js-data/deu', { langPath: 'synthetic-language-data' }],
     ['./parser', parser],
     ['./textlayer', { seitenText: async () => '' }],
-    ['./bestellungen', { ...emptyIntegration, einrichten(value) { setups.bestellungen.push(value) }, WURZEL: syntheticReceipts, eintraege: () => structuredClone(shopEintraege), warten: async () => {}, abgleichen: async () => ({ neu: 0, geaendert: 0 }), neuBerechnen() { neuBerechnet.push('shopify') }, steuerBefund: () => { if (!steuerBefund) throw new Error('Das Belegarchiv ist nicht eingerichtet.'); return structuredClone(steuerBefund) } }],
+    ['./bestellungen', { ...emptyIntegration, einrichten(value) { setups.bestellungen.push(value) }, WURZEL: syntheticReceipts, eintraege: () => structuredClone(shopEintraege), gebuehrenEintraege: () => [], warten: async () => {}, abgleichen: async () => ({ neu: 0, geaendert: 0 }), neuBerechnen() { neuBerechnet.push('shopify') }, steuerBefund: () => { if (!steuerBefund) throw new Error('Das Belegarchiv ist nicht eingerichtet.'); return structuredClone(steuerBefund) } }],
     ['./archiv', {
       archiv(wurzel, options) {
         // minimales Archiv auf dem In-Memory-Dateisystem: ablegen (Hash, Doppelte), pfad, integritaet

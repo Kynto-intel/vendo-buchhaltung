@@ -47,7 +47,7 @@ const zahl = (n) => Number(n || 0).toLocaleString('de-DE')
 const oder = (w, fehlt) => (String(w || '').trim() ? String(w).trim() : `**Fehlt: ${fehlt}**`)
 const RECHTSFORM = { einzelunternehmen: 'Einzelunternehmen', gmbh: 'GmbH', ug: 'UG (haftungsbeschränkt)' }
 const ARTEN = {
-  umsatzbeleg: 'Umsatzbelege (PDF)', 'shopify-original': 'Shopify-Originaldatensätze (JSON)', 'shopify-zahlungen': 'Shopify-Zahlungsnachweise (JSON)',
+  umsatzbeleg: 'Umsatzbelege (PDF)', 'shopify-original': 'Shopify-Originaldatensätze (JSON)', 'shopify-zahlungen': 'Shopify-Zahlungsnachweise (JSON)', 'shopify-gebuehren': 'Gebühren von Shopify Payments (JSON)',
   'shirtigo-original': 'Shirtigo-Originaldatensätze (JSON)', eingang: 'Eingangsrechnungen (PDF, XML)', siegel: 'Siegel der Hash-Kette',
   zeitstempel: 'Zeitstempel (RFC 3161)', zertifikat: 'Zertifikate der Zeitstempeldienste', pruefbericht: 'Prüfberichte', protokoll: 'Protokolle'
 }
@@ -90,6 +90,7 @@ function verfahrensdokumentation({ stand = {}, ergaenzungen = {}, bestaetigung =
     `- Abruf: Auf Knopfdruck „Synchronisieren“ liest ${vendo} die Bestellungen über die Shopify-Admin-Schnittstelle (nur lesend). Zugang: ${q.shopify?.eingerichtet ? (q.shopify.quelle === 'hermes' ? 'eingerichtet (Zugangsdaten aus Hermes, nicht in der Buchhaltung gespeichert)' : 'eingerichtet (verschlüsselt gespeichert)') : 'derzeit nicht eingerichtet'}.`,
     '- Jede Bestellung wird als Originaldatensatz (JSON) unverändert ins Belegarchiv gelegt. Ändert sich eine Bestellung (Erstattung, Storno), entsteht eine neue Version; alte Versionen bleiben.',
     '- Zahlungsnachweise (Transaktionen mit Tag und Betrag) werden als eigener Datensatz archiviert; maßgeblich für den Zufluss ist der Zahlungstag.',
+    '- Gebühren von Shopify Payments liefert Shopify je Zahlung; sie werden als eigener Datensatz archiviert und als Ausgabe am Zahlungstag erfasst (als steuerfreie Zahlungsdienstleistung ohne § 13b). Gebühren anderer Zahlungsanbieter und die Shopify-Rechnungen (Abo, Apps, Transaktionsgebühren) kommen als PDF über den Belegeingang.',
     '- Aus dem Originaldatensatz erzeugt das Programm einen Umsatzbeleg (PDF) mit fortlaufendem Bezug zur Bestellnummer, Ausstellungsdatum und Steuerhinweis (§ 19 UStG bzw. ausgewiesene Umsatzsteuer je Zeitraum).',
     '- Korrekturen: Belege werden nie überschrieben. Eine Neufassung (z. B. geänderter Steuerausweis) wird als neue Datei mit Verweis auf die ersetzte Fassung abgelegt und im Archiv protokolliert.',
     '', '### 2.2 Eingangsbelege: Shirtigo',

@@ -12,7 +12,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex')
-const ORDNER = { umsatzbeleg: 'umsatzbelege', eingang: 'eingang', 'shopify-original': 'originale/shopify', 'shopify-zahlungen': 'originale/shopify-zahlungen', 'shirtigo-original': 'originale/shirtigo', siegel: 'protokoll/siegel', zeitstempel: 'protokoll/zeitstempel', zertifikat: 'protokoll/zertifikate', pruefbericht: 'protokoll/pruefberichte', protokoll: 'protokoll/vorgaenge' }
+const ORDNER = { umsatzbeleg: 'umsatzbelege', eingang: 'eingang', 'shopify-original': 'originale/shopify', 'shopify-zahlungen': 'originale/shopify-zahlungen', 'shopify-gebuehren': 'originale/shopify-gebuehren', 'shirtigo-original': 'originale/shirtigo', siegel: 'protokoll/siegel', zeitstempel: 'protokoll/zeitstempel', zertifikat: 'protokoll/zertifikate', pruefbericht: 'protokoll/pruefberichte', protokoll: 'protokoll/vorgaenge' }
 const GEPACKT = /\.(json|jsonl|txt|csv|xml|md)$/i // Text komprimieren, PDFs und Bilder nur ablegen
 
 // Spalten der Tabellen: [Name, Typ, Bedeutung]. Die Kopfzeilen der CSVs kommen von hier, die Verfahrensdokumentation
@@ -24,6 +24,7 @@ const TABELLEN = {
   'zahlungen.csv': [['Bestellnummer', T, 'Shopify-Bestellnummer'], ['Art', T, 'Eingang oder Erstattung'], ['Tag', D, 'Tag der Zahlung'], ['Betrag', B, 'Betrag'], ['Zahlungsart', T, 'Zahlungsanbieter']],
   'einkaeufe.csv': [['Shirtigo-Referenz', T, 'Auftragsnummer bei Shirtigo'], ['Rechnungsnummer', T, 'Rechnungsnummer von Shirtigo'], ['Datum', D, 'Rechnungsdatum'], ['Brutto', B, 'Bruttobetrag'], ['Umsatzsteuer', B, 'ausgewiesene Umsatzsteuer'], ['Netto', B, 'Nettobetrag'], ['Wirksam', B, WIRKSAM], ['Belegdatei', T, 'Dateiname der Rechnung in eingang/'], ['SHA-256 Beleg', T, 'Prüfsumme der Rechnung']],
   'belege.csv': [['Lieferant', T, 'Aussteller des eingelesenen Belegs'], ['Rechnungsnummer', T, 'Nummer auf dem Beleg'], ['Datum', D, 'Belegdatum'], ['Art', T, 'ausgabe oder einnahme'], ['Brutto', B, 'Bruttobetrag'], ['Umsatzsteuer', B, 'ausgewiesene Umsatzsteuer'], ['Netto', B, 'Nettobetrag'], ['Wirksam', B, WIRKSAM], ['§ 13b-Steuer', B, 'selbst geschuldete Umsatzsteuer (§ 13b UStG)'], ['Ausgeblendet', J, 'in der Ansicht ausgeblendet (bleibt im Archiv)'], ['SHA-256 Beleg', T, 'Prüfsumme der Datei in eingang/']],
+  'gebuehren.csv': [['Bestellnummer', T, 'Shopify-Bestellnummer'], ['Tag', D, 'Tag der Zahlung, für die die Gebühr anfiel'], ['Anbieter', T, 'Zahlungsanbieter'], ['Art', T, 'Art der Gebühr laut Anbieter'], ['Gebühr', B, 'Gebühr (bei Erstattungen negativ möglich)'], ['Steuer auf die Gebühr', B, 'vom Anbieter berechnete Steuer'], ['Wirksam', B, 'Betrag, der in die EÜR eingeht (Gebühr + Steuer)'], ['Datei', T, 'Datensatz in originale/shopify-gebuehren/']],
   'euer.csv': [['Kennzahl', T, 'Kennzahl der Anlage EÜR (leer bei Summenzeilen)'], ['Bezeichnung', T, 'Bezeichnung'], ['Betrag', B, 'Betrag des Jahres']]
 }
 const kopf = (datei) => TABELLEN[datei].map(([n]) => n)
@@ -50,6 +51,7 @@ function liesmich({ jahr, firma, jetzt, version, anzahl, pruefwert }) {
     '  bestellungen.csv    je Bestellung: Nummer, Bestelltag, Zahlungstag, Beträge, Belegdatei, SHA-256',
     '  zahlungen.csv       Zahlungseingänge und Erstattungen je Bestellung',
     '  einkaeufe.csv       Shirtigo-Rechnungen   belege.csv   eingelesene Belege',
+    '  gebuehren.csv       Gebühren von Shopify Payments je Zahlung (Datensätze in originale/shopify-gebuehren/)',
     '  euer.csv            Kennzahlen der Anlage EÜR des Jahres (zum Abtippen in Mein ELSTER, ohne Gewähr)',
     '  angaben.json        Firmendaten zum Zeitpunkt des Exports',
     '  verfahrensdokumentation.md  Beschreibung des Verfahrens (GoBD) mit Beschreibung der Tabellen',
@@ -68,7 +70,7 @@ function liesmich({ jahr, firma, jetzt, version, anzahl, pruefwert }) {
 }
 
 // Alle Dateien des Jahresarchivs zusammenstellen (ohne ZIP, testbar). quellen wie im Index (datenbank-index.js).
-function zusammenstellen({ jahr, archiv, shop = [], shirtigo = [], belege = [], euer = null, firma = {}, version = '', jetzt = new Date().toISOString(), zusatz = null }) {
+function zusammenstellen({ jahr, archiv, shop = [], shirtigo = [], belege = [], euer = null, firma = {}, version = '', jetzt = new Date().toISOString(), zusatz = null, gebuehren = [] }) {
   jahr = String(jahr)
   const dateien = []
   const fehler = []
@@ -96,7 +98,10 @@ function zusammenstellen({ jahr, archiv, shop = [], shirtigo = [], belege = [], 
     shirtigo.filter((e) => imJahrTag(e?.rechnung?.datum)).map(({ id, beleg = {}, rechnung: r }) => [String(id).replace(/^t/, ''), r.rechnungsnummer || '', tag(r.datum), r.summen?.brutto ?? 0, r.summen?.mwst ?? 0, r.summen?.netto ?? 0, r.wirksam ?? 0, name(beleg.pdf), beleg.sha256 || ''])) })
   dateien.push({ name: 'belege.csv', inhalt: csv(kopf('belege.csv'),
     belege.filter((d) => imJahrTag(d?.rechnung?.datum)).map(({ rechnung: r, ausgeblendet, archiv: a }) => [r.lieferant || '', r.rechnungsnummer || '', tag(r.datum), r.art || '', r.summen?.brutto ?? 0, r.summen?.mwst ?? 0, r.summen?.netto ?? 0, r.wirksam ?? 0, r.p13b?.steuer ?? 0, !!ausgeblendet, a?.sha256 || ''])) })
-  const kz = [['111', 'Betriebseinnahmen als Kleinunternehmer', 'kz111'], ['112', 'Umsatzsteuerpflichtige Betriebseinnahmen (netto)', 'kz112'], ['140', 'Vereinnahmte Umsatzsteuer', 'kz140'], ['100', 'Waren, Rohstoffe und Hilfsstoffe', 'kz100'], ['186', 'An das Finanzamt gezahlte Umsatzsteuer', 'kz186'], ['', 'Übrige Ausgaben (Kennzahl je Art selbst zuordnen)', 'sonstige'], ['', 'Summe Einnahmen', 'einnahmen'], ['', 'Summe Ausgaben', 'ausgaben'], ['', 'Gewinn', 'gewinn']]
+  // Gebühren (4.8): je Gebühr eine Zeile, Jahr nach dem Tag der Zahlung
+  dateien.push({ name: 'gebuehren.csv', inhalt: csv(kopf('gebuehren.csv'), gebuehren.flatMap(({ rechnung: r, archiv: a }) => (r?.positionen || []).filter((p) => imJahrTag(p.datum))
+    .map((p) => [r.referenz, tag(p.datum), r.lieferant || '', p.bezeichnung || '', p.gesamt ?? 0, p.steuer ?? 0, Math.round(((p.gesamt ?? 0) + (p.steuer ?? 0)) * 100) / 100, name(a?.datei)]))) })
+  const kz = [['111', 'Betriebseinnahmen als Kleinunternehmer', 'kz111'], ['112', 'Umsatzsteuerpflichtige Betriebseinnahmen (netto)', 'kz112'], ['140', 'Vereinnahmte Umsatzsteuer', 'kz140'], ['100', 'Waren, Rohstoffe und Hilfsstoffe', 'kz100'], ['186', 'An das Finanzamt gezahlte Umsatzsteuer', 'kz186'], ['', 'Übrige Ausgaben (Kennzahl je Art selbst zuordnen)', 'sonstige'], ['', 'davon Gebühren (Zahlungen, Shopify-Transaktionen)', 'gebuehren'], ['', 'Summe Einnahmen', 'einnahmen'], ['', 'Summe Ausgaben', 'ausgaben'], ['', 'Gewinn', 'gewinn']]
   dateien.push({ name: 'euer.csv', inhalt: csv(kopf('euer.csv'), euer ? kz.map(([k, l, f]) => [k, l, Number(euer[f]) || 0]) : []) })
   if (!euer) fehler.push(`Keine EÜR-Zahlen für ${jahr} vorhanden.`)
   const { persoenlich, ...nurFirma } = firma // persönliche Angaben nie ins Jahresarchiv (P-4)

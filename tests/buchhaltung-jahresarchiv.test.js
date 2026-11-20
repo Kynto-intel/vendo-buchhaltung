@@ -96,3 +96,16 @@ test('Siegel aus späteren Jahren und die vollständige Kette kommen mit, damit 
   assert.equal(kette.length, a.eintraege().length)
   for (let i = 1; i < kette.length; i++) assert.equal(kette[i].vorher, kette[i - 1].hash, 'Kette lückenlos')
 })
+
+test('gebuehren.csv: je Gebühr eine Zeile im Jahr der Zahlung, Datensatz unter originale/shopify-gebuehren (Schritt 4.8)', (t) => {
+  const { a } = aufbauen(t)
+  const g = a.ablegen(Buffer.from('{"bestellung":{"name":"#1001"}}'), { art: 'shopify-gebuehren', jahr: 2025, name: 'Shopify Gebühren 1001 v1.json', meta: { bestellung: '1001', version: 1 } })
+  const gebuehren = [{ archiv: { datei: g.datei }, rechnung: { referenz: '1001', lieferant: 'Shopify Payments', datum: '2025-03-06', positionen: [{ bezeichnung: 'payment_processing', gesamt: 0.92, steuer: 0.1, datum: '2025-03-06' }, { bezeichnung: 'payment_processing (Erstattung)', gesamt: -0.2, steuer: 0, datum: '2026-01-02' }] } }]
+  const erg = ja.zusammenstellen({ jahr: 2025, archiv: a, euer: { ...euer, gebuehren: 0.92 }, gebuehren })
+  const datei = (n) => erg.dateien.find((d) => d.name === n).inhalt.toString('utf8')
+  const zeilen = datei('gebuehren.csv').replace(/^﻿/, '').trim().split('\r\n')
+  assert.equal(zeilen[0], 'Bestellnummer;Tag;Anbieter;Art;Gebühr;Steuer auf die Gebühr;Wirksam;Datei')
+  assert.deepEqual(zeilen.slice(1), [`1001;2025-03-06;Shopify Payments;payment_processing;0,92;0,10;1,02;${g.datei.split('/').pop()}`])
+  assert.ok(erg.dateien.some((d) => d.name.startsWith('originale/shopify-gebuehren/')))
+  assert.match(datei('euer.csv'), /;davon Gebühren \(Zahlungen, Shopify-Transaktionen\);0,92\r\n/)
+})

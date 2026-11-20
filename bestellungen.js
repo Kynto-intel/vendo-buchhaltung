@@ -410,6 +410,98 @@ async function zahlungenNachholen(map, neu) {
   return { anzahl, offen: fehlen.length - anzahl }
 }
 
+// ---------- Gebühren von Shopify Payments (Schritt 4.8) ----------
+// Shopify liefert die Gebühr je Zahlung nur für Shopify Payments (OrderTransaction.fees). Eigene Abfrage, damit der
+// normale Abgleich unberührt bleibt, falls das Feld verweigert wird. Archiviert wird je Bestellung eine Datei
+// „shopify-gebuehren“ (nur Transaktions-ID, Art, Zeit, Gebühren – keine Kundendaten), und nur, wenn Shopify Gebühren
+// liefert. Bestellungen ohne gelieferte Gebühren merkt sich der Abgleichstand (je Version), damit sie nicht jedes Mal neu
+// abgefragt werden.
+const GEBUEHREN_QUERY = `query($ids: [ID!]!) { nodes(ids: $ids) { ... on Order { id name transactions(first: 30) { id kind status test processedAt createdAt gateway fees { amount { amount currencyCode } flatFee { amount currencyCode } rate taxAmount { amount currencyCode } type } } } } }`
+const SHOPIFY_PAYMENTS = /shopify[_ ]payments/i
+
+// Gebühren aus den Transaktionen: nur erfolgreiche, echte Zahlungen; Datum = Berliner Kalendertag der Zahlung
+function gebuehrenAus(liste) {
+  const m = (x) => rund(parseFloat(x?.amount ?? 0) || 0)
+  const posten = []
+  for (const t of Array.isArray(liste) ? liste : []) {
+    if (!t || t.status !== 'SUCCESS' || t.test || !Array.isArray(t.fees)) continue
+    const zeit = t.processedAt || t.createdAt
+    for (const f of t.fees) {
+      const waehrung = f?.amount?.currencyCode || 'EUR'
+      posten.push({ datum: new Date(zeit).toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' }), zeit, art: t.kind, typ: f.type || 'Gebühr', betrag: m(f.amount), steuer: m(f.taxAmount), fix: m(f.flatFee), satz: Number(f.rate) || 0, waehrung })
+    }
+  }
+  posten.sort((a, b) => String(a.zeit).localeCompare(String(b.zeit)))
+  const summe = rund(posten.reduce((s, p) => s + p.betrag, 0))
+  const steuer = rund(posten.reduce((s, p) => s + p.steuer, 0))
+  return { posten, summe, steuer, brutto: rund(summe + steuer), datum: posten[0]?.datum || null, fremd: posten.some((p) => p.waehrung !== 'EUR') }
+}
+
+// Ausgabe-Eintrag je Bestellung (wie Shirtigo-Einträge: gleiche Bestellnummer → zählt als Kosten der Bestellung)
+function gebuehrEintrag(nr, j, g, abgerufen) {
+  if (!g.posten.length) return null
+  return {
+    id: `g${nr}`, name: `Shopify Payments · Gebühren Bestellung ${nr}`, groesse: 0, zeit: Date.parse(g.posten[0].zeit) || Date.now(),
+    scanStand: Date.parse(abgerufen) || null, methode: 'shopify-gebuehr', seiten: 1, zeichen: 0, quelle: 'shopify-gebuehr',
+    archiv: { datei: j.datei, sha256: j.sha256 },
+    rechnung: {
+      anbieter: 'shopify-payments', lieferant: 'Shopify Payments', art: 'ausgabe', gebuehr: true, waehrung: g.fremd ? 'fremd' : 'EUR', preisart: 'brutto',
+      referenz: nr, bestellnummer: nr, rechnungsnummer: `Gebühren #${nr}`, datum: g.datum,
+      positionen: g.posten.map((p) => ({ typ: 'gebuehr', bezeichnung: `${p.typ}${p.art === 'REFUND' ? ' (Erstattung)' : ''}`, menge: 1, einzelpreis: p.betrag, gesamt: p.betrag, steuer: p.steuer, datum: p.datum })),
+      summen: { netto: g.summe, mwst: g.steuer, brutto: g.brutto, mwstSatz: 0 }, wirksam: g.brutto, wirksamArt: 'brutto',
+      version: 'shopify-gebuehren-1', pruefung: { ok: !g.fremd, hinweise: g.fremd ? ['Gebühr nicht in EUR – Betrag nicht umgerechnet.'] : [] }
+    }
+  }
+}
+
+let gebuehrenCache = null // { anzahl, liste }
+function gebuehrenEintraege() {
+  const a = archivNoetig()
+  const alle = a.eintraege()
+  if (gebuehrenCache?.anzahl === alle.length) return gebuehrenCache.liste
+  const neueste = new Map()
+  for (const e of alle) if (e.art === 'shopify-gebuehren' && e.meta?.bestellung) neueste.set(String(e.meta.bestellung), e) // jüngste gewinnt
+  const liste = []
+  for (const [nr, j] of neueste) {
+    try {
+      const { meta = {}, bestellung = {} } = JSON.parse(fs.readFileSync(a.pfad(j), 'utf8'))
+      const e = gebuehrEintrag(nr, j, gebuehrenAus(bestellung.transactions), meta.abgerufen)
+      if (e) liste.push(e)
+    } catch { /* beschädigte Datei: Integritätsprüfung meldet es */ }
+  }
+  gebuehrenCache = { anzahl: alle.length, liste }
+  return liste
+}
+
+async function gebuehrenNachholen(map, neu) {
+  const a = archivNoetig()
+  const vorhanden = new Map()
+  for (const e of a.eintraege()) if (e.art === 'shopify-gebuehren' && e.meta?.bestellung) vorhanden.set(String(e.meta.bestellung), Number(e.meta.version) || 0)
+  const leer = stand.lesen()?.gebuehrenLeer || {}
+  const offen = [...map.values()].filter((x) => x.gid && x.eintrag && SHOPIFY_PAYMENTS.test(String(x.eintrag.rechnung?.zahlung?.art || '')) &&
+    (vorhanden.get(x.nr) ?? -1) < x.version && leer[x.nr] !== x.version)
+  let anzahl = 0
+  const neuLeer = { ...leer }
+  for (let i = 0; i < offen.length; i += 50) {
+    const teil = offen.slice(i, i + 50)
+    const { nodes } = await graphql(GEBUEHREN_QUERY, { ids: teil.map((x) => x.gid) })
+    const abgerufen = new Date().toISOString()
+    for (const n of nodes || []) {
+      const x = n?.id && teil.find((y) => y.gid === n.id)
+      if (!x || !Array.isArray(n.transactions)) continue
+      if (!gebuehrenAus(n.transactions).posten.length) { neuLeer[x.nr] = x.version; continue }
+      const transaktionen = n.transactions.map(({ id, kind, status, test, processedAt, createdAt, gateway, fees }) => ({ id, kind, status, test, processedAt, createdAt, gateway, fees }))
+      const text = JSON.stringify({ meta: { quelle: 'Shopify Admin GraphQL API', apiVersion: API_VERSION, abgerufen }, bestellung: { id: n.id, name: n.name, transactions: transaktionen } }, null, 2)
+      const z = a.ablegen(Buffer.from(text, 'utf8'), { art: 'shopify-gebuehren', jahr: x.json.jahr, name: `Shopify Gebühren ${x.nr} v${x.version}.json`, meta: { quelle: 'shopify-api', bestellung: x.nr, version: x.version }, sofortSchuetzen: false })
+      if (!z.doppelt) neu.push(z)
+      anzahl++
+    }
+  }
+  if (Object.keys(neuLeer).length !== Object.keys(leer).length) stand.schreiben({ ...stand.lesen(), gebuehrenLeer: neuLeer })
+  gebuehrenCache = null
+  return { anzahl, ohne: Object.keys(neuLeer).length - Object.keys(leer).length, geprueft: offen.length }
+}
+
 // ---------- Abgleich ----------
 let laeuft = null
 function abgleichen() {
@@ -438,16 +530,21 @@ function abgleichen() {
           alt ? erg.geaendert++ : erg.neu++
         }
         const letzte = orders.nodes.at(-1)?.updatedAt
-        if (letzte) { seit = letzte; stand.schreiben({ seit, zuletzt: new Date().toISOString() }) } // fortsetzbar bei Abbruch
+        if (letzte) { seit = letzte; stand.schreiben({ ...stand.lesen(), seit, zuletzt: new Date().toISOString() }) } // fortsetzbar bei Abbruch
         if (!orders.pageInfo.hasNextPage) break
         cursor = orders.pageInfo.endCursor
       }
-      stand.schreiben({ seit, zuletzt: new Date().toISOString() })
+      stand.schreiben({ ...stand.lesen(), seit, zuletzt: new Date().toISOString() })
       try {
         const z = await zahlungenNachholen(map, neu)
         erg.zahlungenNeu = z.anzahl
         if (z.offen) hinweise.push(`Zahlungsdatum für ${z.offen} Bestellung(en) nicht gefunden.`)
       } catch (f) { hinweise.push(`Zahlungsdaten konnten nicht geholt werden: ${f.message}`) }
+      try {
+        const g = await gebuehrenNachholen(map, neu)
+        erg.gebuehrenNeu = g.anzahl
+        if (g.ohne) hinweise.push(`Shopify lieferte für ${g.ohne} Bestellung(en) mit Shopify Payments keine Gebühren.`)
+      } catch (f) { hinweise.push(`Gebühren von Shopify Payments konnten nicht geholt werden: ${f.message}`) }
       const ohneBeleg = [...map.values()].filter((x) => !x.pdf).length
       if (ohneBeleg && !profil.vollstaendig()) hinweise.push(`${ohneBeleg} Umsatzbeleg(e) warten auf „Meine Angaben“: Pflichtangaben fehlen. Die Bestellungen sind im Archiv, die Belege werden danach automatisch erzeugt.`)
     } catch (fehler) {
@@ -467,4 +564,4 @@ function abgleichen() {
 function neuBerechnen() { if (!laeuft) cache = null }
 const beschaeftigt = () => !!laeuft
 const warten = () => laeuft || Promise.resolve()
-module.exports = { einrichten, neufassungPlanen, neufassungVorschau, neufassungErzeugen, abgleichen, eintraege, steuerBefund, neuBerechnen, orte, pdfPfad, zuRechnung, zahlungAus, belegOrdner, ansichtsKopie, beschaeftigt, warten, WURZEL }
+module.exports = { gebuehrenEintraege, gebuehrenAus, einrichten, neufassungPlanen, neufassungVorschau, neufassungErzeugen, abgleichen, eintraege, steuerBefund, neuBerechnen, orte, pdfPfad, zuRechnung, zahlungAus, belegOrdner, ansichtsKopie, beschaeftigt, warten, WURZEL }

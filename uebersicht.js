@@ -18,7 +18,7 @@ const rund = (n) => Math.round(n * 100) / 100
 function euerJahre({ einnahmen = [], ausgaben = [], p13bMonate = [] } = {}) {
   const jahre = new Map()
   const jahr = (j) => {
-    if (!jahre.has(j)) jahre.set(j, { jahr: j, kz111: 0, kz112: 0, kz140: 0, kz100: 0, sonstige: 0, kz186: 0 })
+    if (!jahre.has(j)) jahre.set(j, { jahr: j, kz111: 0, kz112: 0, kz140: 0, kz100: 0, sonstige: 0, gebuehren: 0, kz186: 0 })
     return jahre.get(j)
   }
   for (const x of steuer.posten(einnahmen)) {
@@ -30,13 +30,16 @@ function euerJahre({ einnahmen = [], ausgaben = [], p13bMonate = [] } = {}) {
     const j = jahr(r.datum.slice(0, 4))
     if (r.anbieter === 'shirtigo-api') j.kz100 += r.wirksam ?? 0
     else j.sonstige += r.wirksam ?? 0
+    // davon Gebühren (4.8): Shopify-Payments-Gebühren ganz, bei Shopify-Rechnungen der Anteil der Transaktionsgebühren
+    if (r.gebuehr) j.gebuehren += r.wirksam ?? 0
+    else if (r.gebuehren) j.gebuehren += r.gebuehren
   }
   for (const m of p13bMonate) {
     if (!m.steuer) continue
     jahr((m.angemeldet || m.faellig).slice(0, 4)).kz186 += m.steuer
   }
   return [...jahre.values()].map((j) => {
-    for (const k of ['kz111', 'kz112', 'kz140', 'kz100', 'sonstige', 'kz186']) j[k] = rund(j[k])
+    for (const k of ['kz111', 'kz112', 'kz140', 'kz100', 'sonstige', 'gebuehren', 'kz186']) j[k] = rund(j[k])
     const einnahmenSumme = rund(j.kz111 + j.kz112 + j.kz140)
     const ausgabenSumme = rund(j.kz100 + j.sonstige + j.kz186)
     return { ...j, einnahmen: einnahmenSumme, ausgaben: ausgabenSumme, gewinn: rund(einnahmenSumme - ausgabenSumme) }

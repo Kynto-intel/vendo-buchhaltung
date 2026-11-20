@@ -424,4 +424,24 @@ describe('Invoice summaries', () => {
     assert.deepEqual(summary.gesamt, { einnahmen: 3, ausgaben: 1, versand: 0, mwst: 0, gewinn: 2 })
     assert.deepEqual(summary.monate.unbekan, { einnahmen: 3, ausgaben: 1, gewinn: 2 })
   })
+
+  it('marks Shopify transaction fees on subscription invoices (step 4.8)', () => {
+    const r = parseRechnung(`
+      Shopify International Limited
+      Rechnung #77200
+      Feb 7, 2026
+      DETAILANSICHT
+      Shopify Abonnement (1 Artikel) 27,00 € EUR
+      Basic 27,00 € EUR
+      Transaktionsgebühren (2 Artikel) 1,50 € EUR
+      Transaktionsgebühr Bestellung #9201 0,90 € EUR
+      Transaktionsgebühr Bestellung #9202 0,60 € EUR
+      Zwischensumme 28,50 €
+      Gesamtsumme 28,50 €
+      Reverse-Charge
+    `)
+    assert.deepEqual(r.positionen.map((p) => [p.typ, p.gesamt]), [['abo', 27], ['gebuehr', 0.9], ['gebuehr', 0.6]])
+    assert.equal(r.gebuehren, 1.5)
+    assert.equal(r.reverseCharge, true)
+  })
 })

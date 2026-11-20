@@ -52,7 +52,7 @@ function starten(t) {
     ['tesseract.js', { createWorker() { throw new Error('OCR darf im Test nicht starten') } }],
     ['@tesseract.js-data/deu', { langPath: 'synthetisch' }],
     ['./parser', require('../parser.js')], ['./profil', require('../profil.js')], ['./textlayer', require('../textlayer.js')],
-    ['./bestellungen', leer], ['./shirtigo', { einrichten() {}, verbunden: () => false }], ['./host', require('../host.js')], ['./shirtigo-bestellungen', leer],
+    ['./bestellungen', { ...leer, gebuehrenEintraege: () => [] }], ['./shirtigo', { einrichten() {}, verbunden: () => false }], ['./host', require('../host.js')], ['./shirtigo-bestellungen', leer],
     ['./archiv', require('../archiv.js')], ['./zeitstempel', require('../zeitstempel.js')], ['./schluessel', require('../schluessel.js')], ['./usb', require('../usb.js')], ['./beleg-layout', { bildspeicherSetzen: () => {} }], ['./angaben', require('../angaben.js')], ['./steuer', require('../steuer.js')], ['./uebersicht', require('../uebersicht.js')],
  ['./datenbank-index', require('../datenbank-index.js')],
  ['./persoenlich', require('../persoenlich.js')],

@@ -146,3 +146,15 @@ test('Payment-date switch groups filters and monthly views by payment day, with 
   assert.deepEqual(jahreListe(liste, 2025, 'zahlung'), ['2026', '2025'], 'Zahlungsjahr erscheint auch ohne Bestelldatum in diesem Jahr')
   assert.deepEqual(jahreListe(liste, 2025, 'bestellung'), ['2025', '2024'])
 })
+
+test('Gebühren zählen als Kosten der Bestellung, machen sie aber allein nicht vollständig (Schritt 4.8)', () => {
+  const sale = createReceipt('shop', { art: 'einnahme', referenz: '999101', datum: '2024-04-01', wirksam: 50, anzahlArtikel: 1, positionen: [] })
+  const fee = createReceipt('g999101', { art: 'ausgabe', gebuehr: true, referenz: '999101', datum: '2024-04-01', wirksam: 1.02, positionen: [{ typ: 'gebuehr', bezeichnung: 'payment_processing', menge: 1, gesamt: 0.92 }] })
+  const cost = createReceipt('cost', { art: 'ausgabe', referenz: '999101', datum: '2024-04-02', wirksam: 20, positionen: [] })
+  const nurGebuehr = bestellungenListe([sale, fee])[0]
+  assert.equal(nurGebuehr.komplett, false)
+  assert.equal(nurGebuehr.kosten, 1.02)
+  const voll = bestellungenListe([sale, fee, cost])[0]
+  assert.equal(voll.komplett, true)
+  assert.equal(voll.gewinn, 28.98)
+})

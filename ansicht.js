@@ -9,7 +9,7 @@ const MONATSNAMEN = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli
 const rund = (n) => Math.round(n * 100) / 100
 const RUECKGABE = { RETURN: 'Retoure', LEGACY_RESTOCK: 'Retoure', CANCEL: 'storniert', NO_RESTOCK: 'erstattet, nicht zurück ins Lager' }
 const istRetoure = (x) => x.art === 'RETURN' || x.art === 'LEGACY_RESTOCK'
-const METHODE = { text: 'PDF-Text', ocr: 'OCR', 'text+ocr': 'PDF-Text + OCR', api: 'Shopify-API', 'shirtigo-api': 'Shirtigo-Daten' }
+const METHODE = { text: 'PDF-Text', ocr: 'OCR', 'text+ocr': 'PDF-Text + OCR', api: 'Shopify-API', 'shirtigo-api': 'Shirtigo-Daten', 'shopify-gebuehr': 'Shopify-Gebühren' }
 const DATENBASIS = {
   zahlung: { label: 'nach Zahlungstag', datum: (r) => r?.datumZahlung ?? r?.zahlung?.datum ?? r?.datum ?? '' },
   bestellung: { label: 'nach Bestelldatum', datum: (r, bestellDaten) => r?.datumBestellung ?? bestellDaten?.get(String(r?.referenz)) ?? r?.datum ?? r?.zahlung?.datum ?? '' }
@@ -20,7 +20,7 @@ const bestelldatenMap = (dateien) => new Map(dateien
 const datumNachBasis = (r, basis = 'zahlung', bestellDaten) => DATENBASIS[basis === 'bestellung' ? 'bestellung' : 'zahlung'].datum(r, bestellDaten)
 
 // ---------- Filter, Sortierung, Kennzahlen (reine Funktionen) ----------
-const istArtikel = (p) => p.typ === 'artikel' || p.typ === 'abo'
+const istArtikel = (p) => p.typ === 'artikel' || p.typ === 'abo' || p.typ === 'gebuehr'
 // "wirksam" = Betrag, der in Einnahmen/Ausgaben/Gewinn zählt (setzt der Parser; Ausgaben brutto bei Kleinunternehmer)
 const betragVon = (r) => (r?.wirksam ?? (r?.summen ? (r.summen.netto ?? r.summen.brutto) : null))
 const artikelNamen = (r) => (r?.positionen || []).filter((p) => istArtikel(p) && !p.entfernt).map((p) => p.bezeichnung)
@@ -153,7 +153,7 @@ export function bestellungenListe(dateien, doppelt = new Set()) {
     const empf = (g.shop[0] || g.kosten[0]).rechnung.empfaenger
     const erloes = g.shop.length ? summe(g.shop) : null
     const kosten = g.kosten.length ? summe(g.kosten) : null
-    const komplett = erloes != null && kosten != null
+    const komplett = erloes != null && g.kosten.some((d) => !d.rechnung.gebuehr) // Gebühren allein machen eine Bestellung nicht vollständig
     const gewinn = komplett ? rund(erloes - kosten) : null
     const umtausch = komplett ? umtauschVon(g) : null
     return {
@@ -603,6 +603,7 @@ export async function starten(ctx) {
           ${verknHtml(r)}
           <div class="rn-aktionen">
             ${d.quelle === 'shopify' || d.beleg ? `<button class="knopf-mini" data-oeffnen type="button">${d.quelle === 'shopify' ? 'Beleg-PDF öffnen' : 'Original-PDF öffnen'}</button>`
+              : d.quelle === 'shopify-gebuehr' ? '<span class="leise">Gebühren laut Shopify-Zahlungsdaten, Datensatz im Belegarchiv</span>'
               : d.quelle ? '<button class="knopf-mini" data-pdf-holen type="button">Original-PDF bei Shirtigo holen</button><span class="leise">Nur Daten aus Shirtigo – oder die PDF in „Shirtigo Rechnungen“ ablegen und einlesen</span>'
               : `<button class="knopf-mini" data-scannen type="button">Erneut scannen</button>
             <button class="knopf-mini" data-text type="button">${texte.has(d.id) ? 'Originaltext ausblenden' : 'Originaltext anzeigen'}</button>

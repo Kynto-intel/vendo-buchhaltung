@@ -108,7 +108,7 @@ module.exports = (ctx) => {
     })
     if (geaendert) speichern(lesen().map((d) => aktuell.find((a) => a.id === d.id) || d))
     const anbieter = ctx.datenLaden().p13bAnbieter || {}
-    return [...aktuell.map((d) => mit13b(d, anbieter)), ...bestellungen.eintraege(), ...shirtigoB.eintraege()]
+    return [...aktuell.map((d) => mit13b(d, anbieter)), ...bestellungen.eintraege(), ...shirtigoB.eintraege(), ...bestellungen.gebuehrenEintraege()]
   })
 
   ctx.bereitstellen('textHolen', (id) => {
@@ -595,7 +595,7 @@ module.exports = (ctx) => {
     const anbieter = d.p13bAnbieter || {}
     let vdExport = null // Verfahrensdokumentation genau wie im ZIP, danach im Archiv protokolliert
     const inhalt = jahresarchiv.zusammenstellen({
-      jahr, archiv: belegArchiv, shop: bestellungen.eintraege(), shirtigo: shirtigoB.eintraege(), belege: lesen().map((x) => mit13b(x, anbieter)),
+      jahr, archiv: belegArchiv, shop: bestellungen.eintraege(), shirtigo: shirtigoB.eintraege(), gebuehren: bestellungen.gebuehrenEintraege(), belege: lesen().map((x) => mit13b(x, anbieter)),
       euer: (dashboardDaten(heute).euer || []).find((e) => e.jahr === jahr) || null,
       firma: { ...angaben.standardwerte(), ...(d.angaben || {}) }, version: require('./plugin.json').version,
       zusatz: ({ fehler, pruefwert, arten }) => {
@@ -745,7 +745,7 @@ module.exports = (ctx) => {
   function dashboardDaten(heute) {
     const d = ctx.datenLaden()
     const einnahmen = alleEinnahmen()
-    const ausgaben = [...shirtigoB.eintraege().map((e) => e.rechnung), ...sichtbar().map((x) => x.rechnung).filter((r) => r && r.art !== 'einnahme')]
+    const ausgaben = [...shirtigoB.eintraege().map((e) => e.rechnung), ...bestellungen.gebuehrenEintraege().map((e) => e.rechnung), ...sichtbar().map((x) => x.rechnung).filter((r) => r && r.art !== 'einnahme')]
     const p13b = p13bDaten(heute)
     const { waechter, statusPasst } = waechterFuer(einnahmen, heute)
     let archivStand = null

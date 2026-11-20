@@ -606,7 +606,7 @@ test('Dashboard-Dienste (Schritt 4.5): Aufgaben aus Angaben/Archiv/§ 13b, EÜR 
   const d = app.services.get('dashboard')({ heute: '2026-10-29' })
   assert.equal(d.heute, '2026-10-29')
   assert.deepEqual(d.aufgaben.map((a) => [a.schluessel, a.stufe]), [
-    ['euer-2025', 'rot'], ['p13b-2026-09', 'rot'], ['angaben', 'rot'], ['usb', 'gelb'], ['wiederherstellungstest', 'gelb'], ['konto-2025', 'info']
+    ['euer-2025', 'rot'], ['p13b-2026-09', 'rot'], ['angaben', 'rot'], ['regelcheck-2026', 'gelb'], ['usb', 'gelb'], ['wiederherstellungstest', 'gelb'], ['verfahren', 'info'], ['konto-2025', 'info']
   ], 'Pflichtangaben fehlen und ein Umsatzbeleg wartet → rot; § 13b 09.2026 überfällig; keine USB-Sicherung')
   assert.deepEqual(d.euer.map((j) => [j.jahr, j.kz111, j.sonstige, j.kz186, j.gewinn]), [['2026', 50, 100, 19, -69], ['2025', 200, 0, 0, 200]], '§ 13b-Steuer 09.2026 im Jahr der Fälligkeit (Oktober 2026)')
 
@@ -616,6 +616,7 @@ test('Dashboard-Dienste (Schritt 4.5): Aufgaben aus Angaben/Archiv/§ 13b, EÜR 
   assert.equal(app.services.get('aufgabeErledigt')('euer-2025', null), null)
   assert.throws(() => app.services.get('aufgabeErledigt')('usb', '2026-10-29'), /kann nicht abgehakt/)
   assert.throws(() => app.services.get('aufgabeErledigt')('konto-2025', 'heute'), /Ungültiges Datum/)
+// 8.5: Regel-Check abhaken legt ein Protokoll im Archiv ab; Zurücknehmen löscht nichts  const vorRegel = app.archives.at(-1).abgelegt.length  assert.equal(app.services.get('aufgabeErledigt')('regelcheck-2026', '2026-11-20'), '2026-11-20')  const prot = app.archives.at(-1).abgelegt.at(-1)  assert.equal(app.archives.at(-1).abgelegt.length, vorRegel + 1)  assert.deepEqual([prot.art, prot.jahr, prot.meta], ['protokoll', 2026, { vorgang: 'regelcheck', jahr: 2026, am: '2026-11-20' }])  assert.equal(app.services.get('aufgabeErledigt')('regelcheck-2026', null), null)  assert.equal(app.archives.at(-1).abgelegt.length, vorRegel + 1, 'Protokoll bleibt')
 
   const erst = app.services.get('aufgabenMelden')({ heute: '2026-10-29' })
   assert.deepEqual(erst.map((a) => a.schluessel), ['euer-2025', 'p13b-2026-09', 'angaben'], 'nur rote Aufgaben')

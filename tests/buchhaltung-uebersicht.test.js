@@ -54,26 +54,26 @@ test('Aufgaben: Stufen, Reihenfolge, Ziele, § 13b-Monate, Archiv, Steuerstatus,
   })
   assert.deepEqual(liste.map((a) => [a.schluessel, a.stufe, a.ziel]), [
     ['euer-2025', 'rot', 'uebersicht'], ['p13b-2026-09', 'rot', 'steuer'], ['angaben', 'rot', 'angaben'],
-    ['p13b-2026-10', 'gelb', 'steuer'], ['usb', 'gelb', 'usb'], ['konto-2025', 'info', null]
+    ['regelcheck-2026', 'gelb', null], ['p13b-2026-10', 'gelb', 'steuer'], ['usb', 'gelb', 'usb'], ['konto-2025', 'info', null]
   ], 'rot vor gelb vor info, innerhalb nach Frist (frühere zuerst, ohne Frist zuletzt); angemeldete und Monate ohne Pflicht fehlen')
   assert.equal(liste[1].text, 'Überfällig seit 12.10.2026 – 19,00 € Steuer.')
-  assert.equal(liste[3].text, 'Abgeben und zahlen bis 10.11.2026 – 2,50 € Steuer (Euro-Betrag fehlt noch).')
+  assert.equal(liste.find((a) => a.schluessel === 'p13b-2026-10').text, 'Abgeben und zahlen bis 10.11.2026 – 2,50 € Steuer (Euro-Betrag fehlt noch).')
   assert.equal(liste.find((a) => a.schluessel === 'angaben').text, '2 Umsatzbeleg(e) warten darauf. Ohne Pflichtangaben erzeugt Vendo keine neuen Umsatzbelege.')
   assert.match(liste.find((a) => a.schluessel === 'euer-2025').text, /^Frist 31\.07\.2026 abgelaufen/)
 
-  const ruhig = aufgaben({ heute: '2026-03-01', archiv: archiv({ usb: { letzteSicherung: '2026-02-27T10:00:00Z', tageSeit: 2 } }), erledigt: { 'konto-2025': '2026-01-10' } })
+  const ruhig = aufgaben({ heute: '2026-03-01', archiv: archiv({ usb: { letzteSicherung: '2026-02-27T10:00:00Z', tageSeit: 2 } }), erledigt: { 'konto-2025': '2026-01-10', 'regelcheck-2026': '2026-01-12' } })
   assert.deepEqual(ruhig.map((a) => [a.schluessel, a.stufe, a.frist]), [['euer-2025', 'info', '2026-07-31']], 'nur noch die EÜR-Frist (mehr als 60 Tage hin)')
   assert.equal(aufgaben({ heute: '2026-06-01', erledigt: { 'konto-2025': 'x' } })[0].stufe, 'gelb', 'ab 60 Tagen vor der Frist gelb')
-  assert.deepEqual(aufgaben({ heute: '2026-06-01', erledigt: { 'euer-2025': '2026-05-01', 'konto-2025': '2026-01-10' } }), [], 'beide erledigt')
+  assert.deepEqual(aufgaben({ heute: '2026-06-01', erledigt: { 'euer-2025': '2026-05-01', 'konto-2025': '2026-01-10', 'regelcheck-2026': '2026-01-12' } }), [], 'alle Jahresaufgaben erledigt')
   assert.equal(aufgaben({ heute: '2027-08-01', erledigt: { 'konto-2026': 'x' } })[0].stufe, 'gelb', '31.07.2027 ist Samstag → Frist Montag 02.08.2027, am 01.08. noch nicht abgelaufen')
 
   const a2 = aufgaben({ heute: '2026-03-01', archiv: { pruefung: { ok: false }, usb: { letzteSicherung: null }, wiederherstellungstest: { faellig: true } }, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x' } })
-  assert.deepEqual(a2.map((a) => [a.schluessel, a.stufe, a.titel]), [['archivpruefung', 'rot', 'Archivprüfung meldet Fehler'], ['usb', 'gelb', 'Noch keine USB-Sicherung'], ['wiederherstellungstest', 'gelb', 'Wiederherstellungstest fällig']])
+  assert.deepEqual(a2.map((a) => [a.schluessel, a.stufe, a.titel]), [['archivpruefung', 'rot', 'Archivprüfung meldet Fehler'], ['regelcheck-2026', 'gelb', 'Jährlicher Regel-Check 2026'], ['usb', 'gelb', 'Noch keine USB-Sicherung'], ['wiederherstellungstest', 'gelb', 'Wiederherstellungstest fällig']])
   assert.equal(aufgaben({ heute: '2026-03-01', archiv: archiv({ usb: { letzteSicherung: 'x', tageSeit: 30 } }), erledigt: { 'euer-2025': 'x', 'konto-2025': 'x' } })[0].stufe, 'rot', 'USB nach 30 Tagen rot')
 
-  const st = aufgaben({ heute: '2026-03-01', waechter: { stufe: 'rot', meldungen: [{ text: 'Grenze überschritten' }] }, statusPasst: false, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x' } })
+  const st = aufgaben({ heute: '2026-03-01', waechter: { stufe: 'rot', meldungen: [{ text: 'Grenze überschritten' }] }, statusPasst: false, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x', 'regelcheck-2026': 'x' } })
   assert.deepEqual(st.map((a) => [a.schluessel, a.stufe]), [['steuerstatus', 'rot']])
-  const gw = aufgaben({ heute: '2026-03-01', waechter: { stufe: 'orange', meldungen: [{ text: 'Ab 01.01.2027 Regelbesteuerung' }] }, statusPasst: true, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x' } })
+  const gw = aufgaben({ heute: '2026-03-01', waechter: { stufe: 'orange', meldungen: [{ text: 'Ab 01.01.2027 Regelbesteuerung' }] }, statusPasst: true, erledigt: { 'euer-2025': 'x', 'konto-2025': 'x', 'regelcheck-2026': 'x' } })
   assert.deepEqual(gw.map((a) => [a.schluessel, a.stufe, a.text]), [['grenzwerte', 'gelb', 'Ab 01.01.2027 Regelbesteuerung']])
 })
 
@@ -85,4 +85,27 @@ test('EÜR: Gebühren stecken in den übrigen Ausgaben und werden als „davon�
   ] })
   const j = jahre.find((x) => x.jahr === '2024')
   assert.deepEqual([j.sonstige, j.gebuehren, j.kz100, j.ausgaben], [29.52, 2.52, 10, 39.52])
+})
+
+test('Erinnerungen (Schritt 8.5): Archiv versiegeln, Verfahrensdokumentation bestätigen, jährlicher Regel-Check', () => {
+  const basis = { pruefung: { ok: true }, usb: { letzteSicherung: '2026-11-19T10:00:00Z', tageSeit: 1 }, wiederherstellungstest: { faellig: false } }
+  const fertig = { 'euer-2025': 'x', 'konto-2025': 'x' }
+  const mitSiegel = (siegel) => aufgaben({ heute: '2026-11-20', archiv: { ...basis, pruefung: { ok: true, siegel } }, erledigt: { ...fertig, 'regelcheck-2026': 'x' } })
+  const s = mitSiegel({ nochNichtVersiegelt: 12, zuletzt: '2026-11-01T02:00:00Z' })
+  assert.deepEqual(s.map((a) => [a.schluessel, a.stufe, a.ziel]), [['siegel', 'gelb', 'archiv']])
+  assert.match(s[0].text, /^12 Einträge seit dem letzten Siegel \(01\.11\.2026\) noch ohne Zeitstempel/)
+  assert.deepEqual(mitSiegel({ nochNichtVersiegelt: 12, zuletzt: '2026-11-18T02:00:00Z' }), [], 'Siegel jünger als eine Woche: keine Erinnerung')
+  assert.deepEqual(mitSiegel({ nochNichtVersiegelt: 0, zuletzt: '2026-01-01T02:00:00Z' }), [], 'alles versiegelt')
+  assert.match(mitSiegel({ nochNichtVersiegelt: 3, zuletzt: null })[0].text, /^3 Einträge noch ohne Zeitstempel/)
+
+  const v = (verfahren) => aufgaben({ heute: '2026-11-20', erledigt: { ...fertig, 'regelcheck-2026': 'x' }, verfahren })
+  assert.deepEqual(v({ bestaetigt: false, gueltig: false, fehlend: 8 }).map((a) => [a.schluessel, a.stufe, a.ziel, a.text]), [['verfahren', 'info', 'verfahren', '8 Angabe(n) fehlen noch. Durchsehen und „Durchgesehen – bestätigen“.']])
+  assert.match(v({ bestaetigt: true, gueltig: false, fehlend: 0 })[0].text, /^Seit der letzten Bestätigung geändert/)
+  assert.equal(v({ bestaetigt: true, gueltig: false, fehlend: 0 })[0].stufe, 'gelb')
+  assert.deepEqual(v({ bestaetigt: true, gueltig: true, fehlend: 0 }), [])
+
+  const januar = aufgaben({ heute: '2027-01-10', erledigt: { 'euer-2026': 'x', 'konto-2026': 'x' } })
+  assert.deepEqual(januar.map((a) => [a.schluessel, a.stufe, a.frist, a.erledigbar]), [['regelcheck-2027', 'info', '2027-01-31', true]])
+  assert.match(januar[0].text, /§ 19 UStG.*Aufbewahrungsfristen.*E-Rechnung.*§ 13b.*Datenschutz.*Protokoll im Archiv/)
+  assert.equal(aufgaben({ heute: '2027-02-01', erledigt: { 'euer-2026': 'x', 'konto-2026': 'x' } })[0].stufe, 'gelb', 'nach Januar gelb')
 })

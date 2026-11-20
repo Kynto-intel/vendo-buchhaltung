@@ -121,6 +121,7 @@ function verfahrensdokumentation({ stand = {}, ergaenzungen = {}, bestaetigung =
     '', '## 5. Internes Kontrollsystem', '',
     `- Wöchentliche Prüfung aller Archivdateien gegen Prüfsummen und Hash-Kette, der Siegel und der Datenbank. Letzte Prüfung: ${w?.zeit ? `${zeitDe(w.zeit)}, ${w.ok ? 'ohne Befund' : '**mit Befund**'}${w.archiv?.geprueft != null ? ` (${zahl(w.archiv.geprueft)} Dateien)` : ''}` : '**noch keine**'}.`,
     '- Jede eingelesene Rechnung wird vor der Übernahme angezeigt; Summen werden gegen die Positionen geprüft, Abweichungen als Hinweis markiert.',
+    `- Jährlicher Regel-Check (Januar): Gesetzesstand der Regeln im Programm prüfen; jeder Check wird im Archiv protokolliert. ${Object.keys(stand.regelcheck || {}).length ? `Zuletzt: ${Object.entries(stand.regelcheck).sort().map(([j, am]) => `${j} am ${tagDe(am)}`).at(-1)}.` : '**Noch keiner protokolliert.**'}`,
     '- Grenzwert-Wächter für § 19 UStG (25.000 € Vorjahr, 100.000 € laufendes Jahr) und EU-Fernverkauf (10.000 €), Erinnerungen an Fristen und Sicherungen.',
     `- Prüfwert (Kopf der Hash-Kette) zum Abschreiben: \`${stand.pruefwert || '–'}\`. Ein früher notierter Prüfwert muss sich in der Kette wiederfinden.`,
     '', '## 6. Datenzugriff der Finanzverwaltung (§ 147 Abs. 6 AO)', '',
@@ -157,6 +158,7 @@ function jahresnachweis({ jahr, stand = {}, arten = {}, euer = null, fehler = []
     `- Siegel: ${s ? `${zahl(s.anzahl)}, zuletzt ${zeitDe(s.zuletzt)}, ${s.ok === false ? '**mit Befund**' : 'gültig'}; ${zahl(s.nochNichtVersiegelt)} Einträge seitdem unversiegelt` : 'noch nicht geprüft'}`,
     `- Prüfwert beim Export: \`${pruefwert || '–'}\``,
     `- Dateien beim Export gegen ihre Prüfsumme geprüft: ${fehler.length ? `**${fehler.length} Befund(e), siehe FEHLER.txt**` : 'alle passend'}`, '',
+    '## Jährlicher Regel-Check', '', `- ${stand.regelcheck?.[String(jahr)] ? `durchgeführt am ${tagDe(stand.regelcheck[String(jahr)])}` : '**für dieses Jahr nicht protokolliert**'}`, '',
     '## Sicherung', '',
     `- Letzte USB-Sicherung: ${zeitDe(u.letzteSicherung)}`,
     `- Letzter Wiederherstellungstest: ${u.wiederherstellungstest ? `${zeitDe(u.wiederherstellungstest.zeit)}, ${u.wiederherstellungstest.ok ? 'erfolgreich' : '**fehlgeschlagen**'}` : '**noch keiner**'}`, ''

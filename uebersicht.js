@@ -59,7 +59,11 @@ const STUFEN = ['rot', 'gelb', 'info']
 
 // Aufgaben & Fristen. Jede Aufgabe: { schluessel, stufe: rot|gelb|info, titel, text, frist, ziel, erledigbar }.
 // ziel: Tab oder Feld, das die Aufgabe löst (angaben, steuer, usb, archiv). erledigt: { schluessel: 'JJJJ-MM-TT' }.
-function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null, p13bMonate = [], waechter = null, statusPasst = true, erledigt = {} } = {}) {
+// Jährlicher Regel-Check (Plan 8.5): Punkte, die jedes Jahr gegen den aktuellen Gesetzesstand geprüft werden
+const REGELCHECK = ['§ 19 UStG: Kleinunternehmergrenzen (25.000 € Vorjahr, 100.000 € laufendes Jahr) und Rechnungshinweis', 'Aufbewahrungsfristen (§ 147 AO, § 14b UStG)', 'E-Rechnung: Empfangspflicht, Formate, Fristen', '§ 13b UStG: Voranmeldung, Umsatzsteuer-Jahreserklärung, Einstufung der Anbieter', 'EU-Fernverkauf (10.000 €) und OSS', 'Datenschutz: Verzeichnis der Verarbeitungstätigkeiten aktuell']
+const tageZwischen = (von, bis) => Math.floor((Date.parse(`${bis}T00:00:00Z`) - Date.parse(String(von).slice(0, 10) + 'T00:00:00Z')) / 86_400_000)
+
+function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null, p13bMonate = [], waechter = null, statusPasst = true, erledigt = {}, verfahren = null } = {}) {
   const liste = []
   const neu = (a) => liste.push({ frist: null, erledigbar: false, ...a })
   const jahr = Number(heute.slice(0, 4))
@@ -73,6 +77,12 @@ function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null,
     const u = archiv.usb || {}
     if (!u.letzteSicherung) neu({ schluessel: 'usb', stufe: 'gelb', titel: 'Noch keine USB-Sicherung', text: 'Das Belegarchiv liegt nur auf diesem PC.', ziel: 'usb' })
     else if (u.tageSeit >= 7) neu({ schluessel: 'usb', stufe: u.tageSeit >= 30 ? 'rot' : 'gelb', titel: 'USB-Sicherung fällig', text: `Letzte Sicherung vor ${u.tageSeit} Tagen (empfohlen: wöchentlich).`, ziel: 'usb' })
+    // Siegel (8.5): neue Einträge ohne Zeitstempel, wenn das letzte Siegel mindestens eine Woche alt ist
+    const sg = archiv.pruefung?.siegel
+    if (sg && sg.nochNichtVersiegelt > 0 && (!sg.zuletzt || tageZwischen(sg.zuletzt, heute) >= 7)) {
+      neu({ schluessel: 'siegel', stufe: 'gelb', titel: 'Archiv versiegeln', ziel: 'archiv',
+        text: `${sg.nochNichtVersiegelt} Einträge ${sg.zuletzt ? `seit dem letzten Siegel (${tagText(String(sg.zuletzt).slice(0, 10))})` : ''} noch ohne Zeitstempel. Wartung → „Archiv versiegeln“.`.replace('  ', ' ') })
+    }
     if (archiv.wiederherstellungstest?.faellig) neu({ schluessel: 'wiederherstellungstest', stufe: 'gelb', titel: 'Wiederherstellungstest fällig', text: archiv.wiederherstellungstest.zeit ? 'Der letzte Test ist über ein Jahr her oder war nicht erfolgreich.' : 'Noch nie getestet, ob sich die USB-Sicherung wiederherstellen lässt.', ziel: 'archiv' })
   }
   for (const m of p13bMonate) {
@@ -82,6 +92,19 @@ function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null,
   }
   if (waechter && !statusPasst) neu({ schluessel: 'steuerstatus', stufe: 'rot', titel: 'Steuerstatus prüfen', text: 'Laut Umsatz gilt die Kleinunternehmerregelung nicht mehr, in „Meine Angaben“ steht noch Kleinunternehmer.', ziel: 'steuer' })
   else if (waechter && ['orange', 'rot'].includes(waechter.stufe)) neu({ schluessel: 'grenzwerte', stufe: 'gelb', titel: 'Umsatzgrenzen beachten', text: waechter.meldungen[0]?.text || 'Siehe Kleinunternehmer-Ampel.', ziel: 'steuer' })
+
+  // Verfahrensdokumentation (8.5): bestätigen, solange sie unbestätigt oder seit der Bestätigung geändert ist
+  if (verfahren && !verfahren.gueltig) {
+    neu({ schluessel: 'verfahren', stufe: verfahren.bestaetigt ? 'gelb' : 'info', titel: 'Verfahrensdokumentation bestätigen', ziel: 'verfahren',
+      text: `${verfahren.bestaetigt ? 'Seit der letzten Bestätigung geändert. ' : ''}${verfahren.fehlend ? `${verfahren.fehlend} Angabe(n) fehlen noch. ` : ''}Durchsehen und „Durchgesehen – bestätigen“.` })
+  }
+  // Jährlicher Regel-Check (8.5): im Januar fällig; Abhaken legt ein Protokoll im Archiv ab
+  const regel = `regelcheck-${jahr}`
+  if (!erledigt[regel]) {
+    const frist = `${jahr}-01-31`
+    neu({ schluessel: regel, stufe: heute > frist ? 'gelb' : 'info', titel: `Jährlicher Regel-Check ${jahr}`, frist, ziel: null, erledigbar: true,
+      text: `Gesetzesstand prüfen: ${REGELCHECK.join('; ')}. Abhaken legt ein Protokoll im Archiv ab.` })
+  }
 
   // Steuererklärung mit EÜR für das Vorjahr: Abgabe ohne Berater bis 31.07. (§ 149 Abs. 2 AO), Wochenende → Montag
   const vorjahr = jahr - 1
@@ -97,4 +120,4 @@ function aufgaben({ heute, pflichtFehlen = [], belegeWartend = 0, archiv = null,
   return liste.sort((a, b) => STUFEN.indexOf(a.stufe) - STUFEN.indexOf(b.stufe) || String(a.frist || '9999').localeCompare(String(b.frist || '9999')))
 }
 
-module.exports = { euerJahre, aufgaben, werktag }
+module.exports = { REGELCHECK, euerJahre, aufgaben, werktag }

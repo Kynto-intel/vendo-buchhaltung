@@ -644,9 +644,11 @@ module.exports = (ctx) => {
       datenbank: { zustand: !db ? 'keine Datenbank eingerichtet' : db.zustand().zustand === 'bereit' ? 'verbunden' : 'nicht verbunden' },
       quellen: { shopify: { eingerichtet: shopifyEin, quelle: host.zugaengeEinstellbar ? 'eigen' : 'hermes' }, shirtigo: !!shirtigo.verbunden(), belege: lesen().length },
       dienste: zeitstempel.DIENSTE.map((x) => x.name),
-      pruefwert: e.at(-1)?.hash || ''
+      pruefwert: e.at(-1)?.hash || '',
+      regelcheck: Object.fromEntries(e.filter((x) => x.meta?.vorgang === 'regelcheck').map((x) => [String(x.meta.jahr), x.meta.am]))
     }
   }
+  const verfahrenZustand = (d) => { const e = verfahren.ergaenzungenNormalisieren(d.verfahren?.ergaenzungen); const b = d.verfahren?.bestaetigung; return { bestaetigt: !!b, gueltig: !!b && b.hash === verfahren.ergaenzungenHash(e), fehlend: verfahren.fehlend(e).length } }
   const verfahrenText = () => { const v = ctx.datenLaden().verfahren || {}; return verfahren.verfahrensdokumentation({ stand: verfahrenStand(), ergaenzungen: v.ergaenzungen, bestaetigung: v.bestaetigung }) }
   const verfahrenAblegen = (text, anlass) => { const zeit = new Date().toISOString(); return belegArchiv.ablegen(Buffer.from(text, 'utf8'), { art: 'protokoll', jahr: Number(heuteBerlin().slice(0, 4)), name: `Verfahrensdokumentation ${zeit.slice(0, 19).replace(/:/g, '-')}.md`, meta: { vorgang: 'verfahrensdokumentation', anlass, fassung: verfahren.FASSUNG } }) }
   async function textSpeichernUnter(titel, name, text) {
@@ -752,18 +754,24 @@ module.exports = (ctx) => {
     try { archivStand = archivStatusDaten() } catch { /* Archiv nicht lesbar: dann ohne Archiv-Aufgaben */ }
     const liste = uebersicht.aufgaben({
       heute, pflichtFehlen: profil.pruefung().fehlend, belegeWartend: bestellungen.eintraege().filter((e) => !e.beleg).length,
-      archiv: archivStand, p13bMonate: p13b.monate, waechter, statusPasst, erledigt: d.aufgabenErledigt || {}
+      archiv: archivStand, p13bMonate: p13b.monate, waechter, statusPasst, erledigt: d.aufgabenErledigt || {}, verfahren: verfahrenZustand(d)
     })
     return { heute, aufgaben: liste, erledigt: d.aufgabenErledigt || {}, euer: uebersicht.euerJahre({ einnahmen, ausgaben, p13bMonate: p13b.monate }) }
   }
   ctx.bereitstellen('dashboard', (optionen = {}) => dashboardDaten(heuteAus(optionen)))
   ctx.bereitstellen('aufgabeErledigt', (schluessel, am) => {
-    if (!/^(euer|konto)-\d{4}$/.test(String(schluessel || ''))) throw new Error('Diese Aufgabe kann nicht abgehakt werden.')
+    if (!/^(euer|konto|regelcheck)-\d{4}$/.test(String(schluessel || ''))) throw new Error('Diese Aufgabe kann nicht abgehakt werden.')
     if (am != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(am))) throw new Error('Ungültiges Datum.')
     const d = ctx.datenLaden()
     const alle = { ...(d.aufgabenErledigt || {}) }
     if (am) alle[schluessel] = String(am)
     else delete alle[schluessel]
+    // Regel-Check (8.5): Abhaken wird im Archiv protokolliert (Zurücknehmen löscht das Protokoll nicht, das Archiv ist nur anfügend)
+    if (am && schluessel.startsWith('regelcheck-')) {
+      const jahr = Number(schluessel.slice(11))
+      const zeit = new Date().toISOString()
+      belegArchiv.ablegen(Buffer.from(JSON.stringify({ vorgang: 'Jährlicher Regel-Check (Plan 8.5)', jahr, am, zeit, punkte: uebersicht.REGELCHECK, version: require('./plugin.json').version }, null, 2), 'utf8'), { art: 'protokoll', jahr, name: `Regel-Check ${jahr} ${zeit.slice(0, 19).replace(/:/g, '-')}.json`, meta: { vorgang: 'regelcheck', jahr, am } })
+    }
     ctx.datenSpeichern({ ...d, aufgabenErledigt: alle })
     return alle[schluessel] || null
   })

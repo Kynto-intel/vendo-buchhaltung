@@ -1159,6 +1159,7 @@ export async function starten(ctx) {
         const ziel = z.dataset.aufgabeZiel
         if (ziel === 'usb') return ctx.kopfKnoepfe.querySelector('[data-usb-einrichten]').click()
         if (ziel === 'archiv') return ctx.kopfKnoepfe.querySelector('[data-status-oeffnen]').click()
+        if (ziel === 'verfahren') { tabWechseln('angaben'); return angabenFeld.querySelector('[data-angaben-tab="verfahren"]')?.click() }
         return tabWechseln(ziel)
       }
       if (fertig) { await ctx.aufrufen('aufgabeErledigt', fertig.dataset.aufgabeErledigt, dashboardHeute); return dashboardZeichnen() }

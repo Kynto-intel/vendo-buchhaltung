@@ -101,3 +101,11 @@ test('Jahresarchiv mit Zusatz: Verfahrensdokumentation und Jahresnachweis im ZIP
   assert.match(summen, /  jahresnachweis\.md\n/)
   assert.match(erg.dateien[0].inhalt.toString(), /verfahrensdokumentation\.md/)
 })
+
+test('Regel-Check (Schritt 8.5) in Jahresnachweis und Verfahrensdokumentation', () => {
+  const mit = { ...stand, regelcheck: { 2025: '2025-01-15', 2026: '2026-01-20' } }
+  assert.match(v.jahresnachweis({ jahr: '2026', stand: mit }), /## Jährlicher Regel-Check\n\n- durchgeführt am 20\.01\.2026/)
+  assert.match(v.jahresnachweis({ jahr: '2024', stand: mit }), /\*\*für dieses Jahr nicht protokolliert\*\*/)
+  assert.match(v.verfahrensdokumentation({ stand: mit }), /Jährlicher Regel-Check \(Januar\).*Zuletzt: 2026 am 20\.01\.2026\./)
+  assert.match(v.verfahrensdokumentation({ stand }), /Noch keiner protokolliert/)
+})

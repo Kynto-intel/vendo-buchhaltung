@@ -231,6 +231,22 @@ test('Verfahrensdokumentation und Datenschutz über die Dienste: ergänzen, best
   assert.match((await api('datenschutzSperren', [{ nrs: [] }])).fehler, /Bestellungen auswählen/)
 })
 
+test('K.3: E-Rechnung als XML hochladen – byte-genau im Archiv, Beträge in der Liste, Scannen abgelehnt, keine Fremd-XML', async (t) => {
+  const { d, api } = await serverStarten(t, { passwort: PASSWORT })
+  const { CII } = require('./fixtures/erechnung.js')
+  const bytes = Buffer.from(CII, 'utf8')
+  const neu = await api('hinzufuegen', [{ inhalt: bytes.toString('base64'), name: 'Erfundene Rechnung.xml' }])
+  assert.equal(neu.ok, true, neu.fehler)
+  assert.deepEqual([neu.wert.xml, neu.wert.rechnung.lieferant, neu.wert.rechnung.summen.brutto], ['CII', 'Erfundene Druckerei GmbH & Co. KG', 119])
+  assert.deepEqual(fs.readFileSync(path.join(d, 'archiv', ...neu.wert.archiv.datei.split('/'))), bytes, 'XML unverändert im Archiv')
+  const index = fs.readFileSync(path.join(d, 'archiv', 'index.jsonl'), 'utf8').trim().split('\n').map((z) => JSON.parse(z))
+  assert.deepEqual(index.at(-1).meta, { quelle: 'xml-eingang', eintrag: neu.wert.id, name: 'Erfundene Rechnung.xml', format: 'CII' })
+  assert.equal((await api('liste')).wert.find((x) => x.id === neu.wert.id).rechnung.wirksam, 119)
+  assert.match((await api('scannen', [neu.wert.id])).fehler, /nicht gescannt/)
+  assert.match((await api('hinzufuegen', [{ inhalt: Buffer.from('<?xml version="1.0"?><Bestellung/>').toString('base64'), name: 'fremd.xml' }])).fehler, /keine E-Rechnung/)
+  assert.match((await api('hinzufuegen', [{ inhalt: bytes.toString('base64'), name: 'rechnung.txt' }])).fehler, /PDF- oder XML-Datei/)
+})
+
 test('Eigenes Repository vorbereitet: private Dateien ausgeschlossen, keine festen Bezüge im Code', () => {
   const ordner = path.resolve('.')
   const ignoriert = fs.readFileSync(path.join(ordner, '.gitignore'), 'utf8').split(/\r?\n/).map((z) => z.trim())

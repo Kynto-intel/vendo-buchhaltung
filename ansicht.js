@@ -300,7 +300,7 @@ export async function starten(ctx) {
       </div>
     </div>`
   ctx.element.innerHTML = `
-    <input class="rn-dateiauswahl" data-dateiauswahl type="file" accept=".pdf,application/pdf" multiple />
+    <input class="rn-dateiauswahl" data-dateiauswahl type="file" accept=".pdf,application/pdf,.xml,application/xml,text/xml" multiple />
     <div class="rn-tabs" role="tablist" aria-label="Ansicht">
       <button type="button" role="tab" data-tab="uebersicht">Übersicht</button>
       <button type="button" role="tab" data-tab="bestellungen">Bestellungen</button>
@@ -605,6 +605,7 @@ export async function starten(ctx) {
             ${d.quelle === 'shopify' || d.beleg ? `<button class="knopf-mini" data-oeffnen type="button">${d.quelle === 'shopify' ? 'Beleg-PDF öffnen' : 'Original-PDF öffnen'}</button>`
               : d.quelle === 'shopify-gebuehr' ? '<span class="leise">Gebühren laut Shopify-Zahlungsdaten, Datensatz im Belegarchiv</span>'
               : d.quelle ? '<button class="knopf-mini" data-pdf-holen type="button">Original-PDF bei Shirtigo holen</button><span class="leise">Nur Daten aus Shirtigo – oder die PDF in „Shirtigo Rechnungen“ ablegen und einlesen</span>'
+              : d.xml ? `<span class="leise">E-Rechnung (${m(d.xml)}), unverändert archiviert</span><button class="knopf-mini" data-ausblenden type="button" aria-label="${m(d.name)} ausblenden" title="Bleibt im Belegarchiv">Ausblenden</button>`
               : `<button class="knopf-mini" data-scannen type="button">Erneut scannen</button>
             <button class="knopf-mini" data-text type="button">${texte.has(d.id) ? 'Originaltext ausblenden' : 'Originaltext anzeigen'}</button>
             <button class="knopf-mini" data-ausblenden type="button" aria-label="${m(d.name)} ausblenden" title="Bleibt im Belegarchiv">Ausblenden</button>`}
@@ -687,7 +688,7 @@ export async function starten(ctx) {
     const erfolgreich = []
     const fehler = []
     for (const datei of liste) {
-      if (!/\.pdf$/i.test(datei.name)) { fehler.push(`${datei.name}: keine PDF-Datei`); continue }
+      if (!/\.(pdf|xml)$/i.test(datei.name)) { fehler.push(`${datei.name}: keine PDF- oder XML-Datei`); continue }
       try {
         // Vendo gibt den Dateipfad (ctx.pfadVon), im Browser (eigenständig) wird der Inhalt übertragen
         if (ctx.pfadVon) {

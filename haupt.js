@@ -23,6 +23,7 @@ const jahresarchiv = require('./jahresarchiv') // Jahresarchiv als ZIP (Plan 11.
 const dbIndex = require('./datenbank-index') // abgeleiteter Index in PostgreSQL (Plan 11.2, Phase D)
 const verfahren = require('./verfahren') // Verfahrensdokumentation und Jahresnachweis (Schritt 7.2 / E.4)
 const dsgvo = require('./dsgvo') // Verzeichnis, Auskunft, Sperre statt Löschen (Schritt 7.3)
+const erechnung = require('./erechnung') // E-Rechnungen als XML annehmen (K.3)
 
 const ID = /^r[a-f0-9]{20}$/
 const MAX_SEITEN = 50
@@ -98,13 +99,36 @@ module.exports = (ctx) => {
 
   // Liste der PDFs. Wurde der Parser verbessert (VERSION) oder haben sich „Meine Angaben“ geändert (eigene Namen, Steuerstatus),
   // werden gespeicherte Texte automatisch neu ausgewertet – ohne erneuten Scan.
+  // ---------- K.1/K.2: Änderungsprotokoll (GoBD Rz. 58, 59, 107) ----------
+  // Steuerlich relevante Änderungen (Einstufungen, Einstellungen, Neuauswertungen) kommen mit altem und neuem Wert als
+  // Protokolleintrag ins Belegarchiv (anfügend, in der Hash-Kette). Erst protokollieren, dann speichern: scheitert das
+  // Protokoll, unterbleibt die Änderung. Keine persönlichen Angaben, keine Zugangsdaten.
+  function aenderungProtokollieren(bereich, inhalt) {
+    const zeit = new Date().toISOString()
+    return belegArchiv.ablegen(Buffer.from(JSON.stringify({ vorgang: 'Änderung', bereich, zeit, ...inhalt }, null, 2), 'utf8'),
+      { art: 'protokoll', jahr: Number(heuteBerlin().slice(0, 4)), name: `Änderung ${bereich} ${zeit.replace(/[:.]/g, '-')}.json`, meta: { vorgang: 'aenderung', bereich } })
+  }
+  const gleich = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  // K.2: Unterschiede einer Neuauswertung in den Feldern, die in Ausgaben, EÜR und § 13b eingehen
+  const AUSWERTUNG = ['art', 'lieferant', 'rechnungsnummer', 'datum', 'wirksam', 'reverseCharge', 'summen.netto', 'summen.mwst', 'summen.brutto']
+  const auswertungWert = (r, k) => (k.startsWith('summen.') ? r?.summen?.[k.slice(7)] : r?.[k]) ?? null
+  const auswertungUnterschiede = (alt, neu) => AUSWERTUNG.filter((k) => !gleich(auswertungWert(alt, k), auswertungWert(neu, k))).map((k) => ({ feld: k, alt: auswertungWert(alt, k), neu: auswertungWert(neu, k) }))
+  // Neuauswertung übernehmen: Abweichungen protokollieren und am Beleg als Hinweis zeigen
+  function neuAusgewertet(d, neu, anlass) {
+    if (!d.rechnung) return { ...d, rechnung: neu } // erste Auswertung: nichts zu vergleichen
+    const unterschiede = auswertungUnterschiede(d.rechnung, neu)
+    if (!unterschiede.length) return { ...d, rechnung: neu }
+    aenderungProtokollieren('neuauswertung', { anlass, beleg: d.id, name: d.name, archiv: d.archiv?.datei || null, leserAlt: d.rechnung?.version ?? null, leserNeu: neu?.version ?? null, unterschiede })
+    const text = `Neu ausgewertet am ${new Date().toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' })} (${anlass}): ${unterschiede.map((u) => `${u.feld} ${u.alt ?? '–'} → ${u.neu ?? '–'}`).join(', ')}. Protokoll im Archiv.`
+    return { ...d, rechnung: { ...neu, pruefung: { ...(neu.pruefung || {}), hinweise: [...(neu.pruefung?.hinweise || []), text] } }, neuausgewertet: { zeit: new Date().toISOString(), unterschiede } }
+  }
   ctx.bereitstellen('liste', () => {
     const vorhanden = sichtbar().filter((d) => fs.existsSync(pdfDatei(d)))
     let geaendert = false
     const aktuell = vorhanden.map((d) => {
       const txt = path.join(ORDNER, `${d.id}.txt`)
       if (!d.scanStand || (d.rechnung?.version === VERSION && d.rechnung?.profil === profil.stand()) || !fs.existsSync(txt)) return d
-      try { geaendert = true; return { ...d, rechnung: parseRechnung(fs.readFileSync(txt, 'utf8')) } } catch { return d }
+      try { const neu = neuAusgewertet(d, parseRechnung(fs.readFileSync(txt, 'utf8')), 'neue Leser-Version oder geänderte Angaben'); geaendert = true; return neu } catch { return d }
     })
     if (geaendert) speichern(lesen().map((d) => aktuell.find((a) => a.id === d.id) || d))
     const anbieter = ctx.datenLaden().p13bAnbieter || {}
@@ -123,6 +147,7 @@ module.exports = (ctx) => {
     id = String(id || '')
     const eintrag = lesen().find((d) => d.id === id)
     if (!ID.test(id) || !eintrag) throw new Error('PDF-Eintrag nicht gefunden.')
+    if (eintrag.xml) throw new Error('E-Rechnungen (XML) werden nicht gescannt: Die Daten stehen schon in der Datei.')
     const pdfPfad = pdfDatei(eintrag)
     if (!fs.existsSync(pdfPfad)) throw new Error('PDF-Datei nicht gefunden.')
 
@@ -214,7 +239,7 @@ module.exports = (ctx) => {
     if (!ID.test(id) || !eintrag) throw new Error('PDF-Eintrag nicht gefunden.')
     const datei = path.join(ORDNER, `${id}.txt`)
     if (!fs.existsSync(datei)) throw new Error('Fuer dieses PDF wurde noch kein Text ausgelesen.')
-    const aktualisiert = { ...eintrag, rechnung: parseRechnung(fs.readFileSync(datei, 'utf8')) }
+    const aktualisiert = neuAusgewertet(eintrag, parseRechnung(fs.readFileSync(datei, 'utf8')), 'von Hand neu ausgewertet')
     speichern(lesen().map((d) => d.id === id ? aktualisiert : d))
     return aktualisiert
   })
@@ -226,26 +251,33 @@ module.exports = (ctx) => {
     let quelle
     let info
     if (inhalt != null && pfad == null) {
-      if (path.extname(originalName).toLowerCase() !== '.pdf') throw new Error('Bitte eine PDF-Datei auswaehlen.')
+      if (!['.pdf', '.xml'].includes(path.extname(originalName).toLowerCase())) throw new Error('Bitte eine PDF- oder XML-Datei auswaehlen.')
       const roh = String(inhalt)
-      if (roh.length > Math.ceil(MAX_PDF / 3) * 4) throw new Error('Die PDF-Datei ist zu groß (höchstens 50 MB).')
+      if (roh.length > Math.ceil(MAX_PDF / 3) * 4) throw new Error('Die Datei ist zu groß (höchstens 50 MB).')
       quelle = Buffer.from(roh, 'base64')
-      if (!quelle.length || quelle.subarray(0, 5).toString('latin1') !== '%PDF-') throw new Error('Das ist keine PDF-Datei.')
+      if (path.extname(originalName).toLowerCase() === '.pdf' && (!quelle.length || quelle.subarray(0, 5).toString('latin1') !== '%PDF-')) throw new Error('Das ist keine PDF-Datei.')
       info = { size: quelle.length }
     } else {
       quelle = String(pfad || '')
-      if (!path.isAbsolute(quelle) || path.extname(originalName).toLowerCase() !== '.pdf') {
-        throw new Error('Bitte eine PDF-Datei auswaehlen.')
+      if (!path.isAbsolute(quelle) || !['.pdf', '.xml'].includes(path.extname(originalName).toLowerCase())) {
+        throw new Error('Bitte eine PDF- oder XML-Datei auswaehlen.')
       }
       info = fs.statSync(quelle, { throwIfNoEntry: false })
-      if (!info?.isFile() || path.extname(quelle).toLowerCase() !== '.pdf') throw new Error('Die PDF-Datei wurde nicht gefunden.')
+      if (!info?.isFile() || !['.pdf', '.xml'].includes(path.extname(quelle).toLowerCase())) throw new Error('Die Datei wurde nicht gefunden.')
     }
 
     // Ins Belegarchiv kopieren (die Quelldatei bleibt unberührt): unveränderlich, schreibgeschützt, in der Hash-Kette (B14).
     // Jahr = Eingangsjahr, weil das Belegdatum erst beim Scannen erkannt wird. Gleiche Datei = derselbe Archivbeleg.
     const id = `r${randomBytes(10).toString('hex')}`
-    const abgelegt = belegArchiv.ablegen(quelle, { art: 'eingang', jahr: new Date().getFullYear(), name: originalName, meta: { quelle: 'pdf-eingang', eintrag: id, name: originalName } })
-    const eintrag = { id, name: originalName, groesse: info.size, zeit: Date.now(), archiv: { datei: abgelegt.datei, sha256: abgelegt.sha256 } }
+    // K.3: E-Rechnung als XML – vor dem Ablegen prüfen, dass es wirklich eine (CII/UBL) ist; Kopfdaten und Summen lesen
+    let xml = null
+    if (path.extname(originalName).toLowerCase() === '.xml') {
+      const puffer = Buffer.isBuffer(quelle) ? quelle : fs.readFileSync(quelle)
+      if (puffer.length > erechnung.MAX_XML) throw new Error('Die XML-Datei ist zu groß (höchstens 20 MB).')
+      xml = erechnung.lesen(puffer.toString('utf8'))
+    }
+    const abgelegt = belegArchiv.ablegen(quelle, { art: 'eingang', jahr: new Date().getFullYear(), name: originalName, meta: { quelle: xml ? 'xml-eingang' : 'pdf-eingang', eintrag: id, name: originalName, ...(xml ? { format: xml.format } : {}) } })
+    const eintrag = { id, name: originalName, groesse: info.size, zeit: Date.now(), archiv: { datei: abgelegt.datei, sha256: abgelegt.sha256 }, ...(xml ? { xml: xml.format, methode: 'xml', scanStand: Date.now(), rechnung: xml } : {}) }
     speichern([...lesen(), eintrag]) // scheitert das, bleibt der Beleg im Archiv; erneutes Hinzufügen findet ihn wieder
     return { ...eintrag, ...(abgelegt.doppelt ? { schonImArchiv: true } : {}), ...(abgelegt.schutzFehler ? { schutzFehler: abgelegt.schutzFehler } : {}) }
   })
@@ -256,7 +288,9 @@ module.exports = (ctx) => {
     id = String(id || '')
     if (!ID.test(id)) throw new Error('Ungueltiger PDF-Eintrag.')
     const dateien = lesen()
-    if (!dateien.some((d) => d.id === id)) throw new Error('PDF-Eintrag nicht gefunden.')
+    const d0 = dateien.find((d) => d.id === id)
+    if (!d0) throw new Error('PDF-Eintrag nicht gefunden.')
+    if (!d0.ausgeblendet) aenderungProtokollieren('ausblenden', { beleg: id, name: d0.name, archiv: d0.archiv?.datei || null, alt: { ausgeblendet: null }, neu: { ausgeblendet: true } })
     speichern(dateien.map((d) => d.id === id ? { ...d, ausgeblendet: d.ausgeblendet || new Date().toISOString() } : d))
     return true
   })
@@ -362,6 +396,8 @@ module.exports = (ctx) => {
       if (!Number.isFinite(b) || b < 0 || b > 1e7) throw new Error('Bitte einen Euro-Betrag angeben.')
       neu.betragEur = Math.round(b * 100) / 100
     }
+    const vorher = lesen().find((x) => x.id === id)
+    if (!gleich(vorher.p13b || null, Object.keys(neu).length ? neu : null)) aenderungProtokollieren('p13b-beleg', { beleg: id, name: vorher.name, lieferant: vorher.rechnung?.lieferant || null, alt: vorher.p13b || null, neu: Object.keys(neu).length ? neu : null })
     speichern(lesen().map((x) => x.id !== id ? x : Object.keys(neu).length ? { ...x, p13b: neu } : (({ p13b, ...rest }) => rest)(x)))
     return lesen().find((x) => x.id === id).p13b || null
   })
@@ -374,6 +410,7 @@ module.exports = (ctx) => {
     const alle = { ...(d.p13bAnbieter || {}) }
     if (einstufung || herkunft) alle[name] = { ...(einstufung ? { einstufung } : {}), ...(herkunft ? { herkunft } : {}) }
     else delete alle[name]
+    if (!gleich((d.p13bAnbieter || {})[name], alle[name])) aenderungProtokollieren('p13b-anbieter', { lieferant: name, alt: (d.p13bAnbieter || {})[name] || null, neu: alle[name] || null })
     ctx.datenSpeichern({ ...d, p13bAnbieter: alle })
     return alle[name] || null
   })
@@ -385,6 +422,7 @@ module.exports = (ctx) => {
     const q = neu?.quartalAb == null || neu.quartalAb === '' ? null : Number(neu.quartalAb)
     if (q !== null && !(Number.isInteger(q) && q >= 2000 && q <= 2099)) throw new Error('Bitte ein Jahr wie 2026 angeben.')
     const e = { quartalAb: q, dauerfrist: !!neu?.dauerfrist }
+    if (!gleich(p13bEinstellungenLesen(d), e)) aenderungProtokollieren('voranmeldungszeitraum', { alt: p13bEinstellungenLesen(d), neu: e })
     ctx.datenSpeichern({ ...d, p13bEinstellungen: e })
     return e
   })
@@ -395,6 +433,7 @@ module.exports = (ctx) => {
     const alle = { ...(d.p13bMonate || {}) }
     if (am) alle[monat] = { am: String(am) }
     else delete alle[monat]
+    if (!gleich((d.p13bMonate || {})[monat], alle[monat])) aenderungProtokollieren('voranmeldung-angemeldet', { zeitraum: monat, alt: (d.p13bMonate || {})[monat] || null, neu: alle[monat] || null })
     ctx.datenSpeichern({ ...d, p13bMonate: alle })
     return alle[monat] || null
   })
@@ -438,6 +477,7 @@ module.exports = (ctx) => {
     const aenderungen = angaben.unterschiede(d.angaben || {}, werte)
     if (d.angaben && !aenderungen.length) return { ok: true, werte, pruefung, geaendert: 0 }
     const verlauf = [...(d.angabenVerlauf || []), { zeit: new Date().toISOString(), aenderungen }].slice(-100)
+    if (d.angaben) aenderungProtokollieren('meine-angaben', { aenderungen }) // Firmendaten und Steuerzeiträume, keine persönlichen Angaben
     ctx.datenSpeichern({ ...d, angaben: werte, angabenVerlauf: verlauf })
     // Ab jetzt gelten die neuen Angaben (Liste, Summen, neue Belege). Bestehende Belege im Archiv bleiben unverändert.
     profil.setzen(werte)
@@ -538,7 +578,10 @@ module.exports = (ctx) => {
     let person = null // P-2: persönliche Angaben verschlüsselt mit auf den Stick (Windows-Speicher nicht verfügbar: ohne sie)
     let personFehler = null
     try { person = persoenlichLesen() } catch (f) { personFehler = f.message }
-    sicherungLaeuft = usbSicherung.sichern({ archiv: belegArchiv, wurzel: lw.wurzel, wiederherstellungsschluessel: k, freiBytes: lw.frei, persoenlich: person })
+    // K.4: übrige Plugin-Daten (Einstufungen, Steuerzeiträume, Haken, Einstellungen) verschlüsselt mit, ohne Zugangsdaten und ohne
+    // die persönlichen Angaben (die liegen eigens im Stand) und ohne veränderliche Prüf- und Melde-Stände
+    const { zugaenge, persoenlich: _p, wartung, aufgabenGemeldet, ...plugindaten } = ctx.datenLaden()
+    sicherungLaeuft = usbSicherung.sichern({ archiv: belegArchiv, wurzel: lw.wurzel, wiederherstellungsschluessel: k, freiBytes: lw.frei, persoenlich: person, plugindaten })
     try {
       const erg = await sicherungLaeuft
       const d = ctx.datenLaden()

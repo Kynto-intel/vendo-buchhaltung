@@ -56,7 +56,7 @@ function starten(t) {
     ['./archiv', require('../archiv.js')], ['./zeitstempel', require('../zeitstempel.js')], ['./schluessel', require('../schluessel.js')], ['./usb', require('../usb.js')], ['./beleg-layout', { bildspeicherSetzen: () => {} }], ['./angaben', require('../angaben.js')], ['./steuer', require('../steuer.js')], ['./uebersicht', require('../uebersicht.js')],
  ['./datenbank-index', require('../datenbank-index.js')],
  ['./persoenlich', require('../persoenlich.js')],
- ['./jahresarchiv', require('../jahresarchiv.js')], ['./verfahren', require('../verfahren.js')], ['./dsgvo', require('../dsgvo.js')], ['./schutz', { schuetzen: (z) => { schutzAufrufe.push(z); return { erfolgreich: true } } }]
+ ['./jahresarchiv', require('../jahresarchiv.js')], ['./verfahren', require('../verfahren.js')], ['./dsgvo', require('../dsgvo.js')], ['./erechnung', require('../erechnung.js')], ['./schutz', { schuetzen: (z) => { schutzAufrufe.push(z); return { erfolgreich: true } } }]
   ])
   const modul = { exports: {} }
   new Function('require', 'module', 'exports', '__dirname', fs.readFileSync(path.join(pluginFolder, 'haupt.js'), 'utf8'))(
@@ -100,11 +100,12 @@ test('Hinzufügen legt die PDF unveränderlich im Archiv ab, Scannen liest sie d
   assert.deepEqual(fs.readFileSync(archivDatei), bytes, 'Beleg bleibt im Archiv')
   assert.equal(daten().dateien.length, 1, 'Eintrag bleibt gespeichert (ausgeblendet)')
   const pruefung = a.integritaet()
-  assert.deepEqual([pruefung.ok, pruefung.geprueft], [true, 1], pruefung.fehler.join('; '))
+  assert.deepEqual([pruefung.ok, pruefung.geprueft], [true, 2], pruefung.fehler.join('; ')) // Beleg + Änderungsprotokoll „ausblenden“ (K.1)
+  assert.deepEqual(a.eintraege().map((x) => [x.art, x.meta?.bereich ?? null]), [['eingang', null], ['protokoll', 'ausblenden']])
 
   // dieselbe Datei erneut: derselbe Archivbeleg, neuer sichtbarer Eintrag
   const wieder = dienste.get('hinzufuegen')({ pfad: quelle, name: path.basename(quelle) })
-  assert.deepEqual([wieder.schonImArchiv, wieder.archiv.datei, a.eintraege().length], [true, e.archiv.datei, 1])
+  assert.deepEqual([wieder.schonImArchiv, wieder.archiv.datei, a.eintraege().length], [true, e.archiv.datei, 2]) // kein zweiter Beleg, nur das Protokoll „ausblenden“
   assert.equal((await dienste.get('liste')()).length, 1)
   assert.equal(dienste.get('integritaet')().archiv.ok, true)
 })

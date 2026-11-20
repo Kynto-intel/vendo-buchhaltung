@@ -119,6 +119,7 @@ function createPluginHarness({ failOnSave = false, initialData = { dateien: [] }
     ['./jahresarchiv', require('../jahresarchiv.js')],
     ['./verfahren', require('../verfahren.js')],
     ['./dsgvo', require('../dsgvo.js')],
+    ['./erechnung', require('../erechnung.js')],
     ['./profil', require('../profil.js')],
     ['./bisher', { EIGENE_NAMEN: [/synthetik/i, /muster/i], FIRMA: { name: 'Synthetik-Shop', zeilen: ['Teststraße 1 / Musterstadt', '12345 / Germany', 'test@example.test', 'example.test'], schluss: ['Empfänger: Erika Muster, IBAN: DE89370400440532013000,', 'Bank: Testbank, W-IdNr: DE123456789'] } }],
     ['./schluessel', { speicher(optionen) { usbAufrufe.push({ optionen }); return { status: () => ({ vorhanden: false }), neu: () => ({ schluessel: 'K', kennung: 'ID' }), bestaetigen: (e) => ({ bestaetigt: e }), eingeben: (e) => ({ eingegeben: e }), laden: () => 'GEHEIM' } } }],
@@ -206,7 +207,7 @@ test('Main process validates PDFs/IDs; after a storage failure the receipt stays
   assert.equal(app.archives[0].abgelegt.length, 1, 'Archivbelege werden nie zurückgenommen')
   const zweit = app.services.get('hinzufuegen')({ pfad: source, name: 'synthetic-rollback.PDF' })
   assert.deepEqual([zweit.schonImArchiv, zweit.archiv.datei, app.archives[0].abgelegt.length, app.storedData().dateien.length], [true, app.archives[0].abgelegt[0].datei, 1, 1])
-  assert.throws(() => app.services.get('hinzufuegen')({ pfad: source, name: 'not-a-pdf.txt' }), /PDF-Datei/)
+  assert.throws(() => app.services.get('hinzufuegen')({ pfad: source, name: 'not-a-pdf.txt' }), /PDF- oder XML-Datei/)
   await assert.rejects(app.services.get('scannen')('bad-id'), /PDF-Eintrag nicht gefunden/)
   assert.throws(() => app.services.get('neuAuswerten')('bad-id'), /PDF-Eintrag nicht gefunden/)
   assert.throws(() => app.services.get('ausblenden')('bad-id'), /PDF-Eintrag/)
@@ -303,7 +304,7 @@ test('Older entries without archive reference still work from daten/buchhaltung;
 test('View hides instead of deleting and explains that the receipt stays archived (step 1.6, B14)', () => {
   const view = require('node:fs').readFileSync(path.join(pluginFolder, 'ansicht.js'), 'utf8')
   assert.equal(/data-loeschen|'loeschen'/.test(view), false)
-  assert.equal((view.match(/data-ausblenden/g) || []).length, 3, 'two buttons + one handler')
+  assert.equal((view.match(/data-ausblenden/g) || []).length, 4, 'buttons for PDF, XML and the list + one handler')
   assert.ok(view.includes("ctx.aufrufen('ausblenden', id)"))
   assert.ok(view.includes('bleibt unverändert im Belegarchiv'))
 })
@@ -711,4 +712,42 @@ test('§ 13b-Einstellungen (Plan-Abschnitt 5): Quartal ab Jahr und Dauerfristver
   assert.equal(app.services.get('p13bAngemeldet')('2026-Q3', '2026-10-05').am, '2026-10-05')
   assert.throws(() => app.services.get('aufgabeErledigt')('ustje-20x5', '2026-01-01'), /kann nicht abgehakt/)
   assert.equal(app.services.get('aufgabeErledigt')('ustje-2025', '2026-07-01'), '2026-07-01')
+})
+
+// ---------- K.1/K.2 (Konformitätsprüfung 20.11.2026): Änderungsprotokoll im Archiv ----------
+test('K.1: Änderungen an Einstufungen und Einstellungen kommen mit alt/neu ins Archiv, unveränderte nicht', async () => {
+  const app = createPluginHarness()
+  const archiv = app.archives.at(-1)
+  const protokolle = () => archiv.abgelegt.filter((e) => e.meta?.vorgang === 'aenderung')
+  const inhalt = (e) => JSON.parse(app.files.get(archiv.pfad(e)))
+  app.services.get('p13bAnbieter')('Synthetik Ltd', { einstufung: 'steuerfrei', herkunft: 'eu' })
+  app.services.get('p13bAnbieter')('Synthetik Ltd', { einstufung: 'steuerfrei', herkunft: 'eu' }) // unverändert
+  app.services.get('p13bEinstellungen')({ quartalAb: 2026, dauerfrist: false })
+  app.services.get('p13bAngemeldet')('2026-Q1', '2026-04-09')
+  assert.deepEqual(protokolle().map((e) => [e.art, e.meta.bereich]), [['protokoll', 'p13b-anbieter'], ['protokoll', 'voranmeldungszeitraum'], ['protokoll', 'voranmeldung-angemeldet']])
+  const anbieter = inhalt(protokolle()[0])
+  assert.deepEqual([anbieter.vorgang, anbieter.lieferant, anbieter.alt, anbieter.neu], ['Änderung', 'Synthetik Ltd', null, { einstufung: 'steuerfrei', herkunft: 'eu' }])
+  assert.deepEqual(inhalt(protokolle()[1]).alt, { quartalAb: null, dauerfrist: false })
+  assert.deepEqual(inhalt(protokolle()[2]).neu, { am: '2026-04-09' })
+})
+
+test('K.2: Neuauswertung mit geänderten Beträgen wird protokolliert und am Beleg vermerkt; gleiche nicht', async () => {
+  const app = createPluginHarness()
+  const archiv = app.archives.at(-1)
+  const source = path.join(path.parse(process.cwd()).root, 'synthetic-k2.PDF')
+  app.files.set(path.resolve(source), 'synthetic pdf bytes k2')
+  const entry = await app.services.get('hinzufuegen')({ pfad: source, name: 'synthetic-k2.PDF' })
+  app.files.set(path.join(dataFolder, `${entry.id}.txt`), invoiceText)
+  app.services.get('neuAuswerten')(entry.id) // erste Auswertung: kein Protokoll
+  app.services.get('neuAuswerten')(entry.id) // gleiche Werte: kein Protokoll
+  assert.equal(archiv.abgelegt.filter((e) => e.meta?.bereich === 'neuauswertung').length, 0)
+  app.files.set(path.join(dataFolder, `${entry.id}.txt`), invoiceText.replace(/11,90/g, '12,90').replace('MwSt. 1,90', 'MwSt. 2,90'))
+  const neu = app.services.get('neuAuswerten')(entry.id)
+  const prot = archiv.abgelegt.filter((e) => e.meta?.bereich === 'neuauswertung')
+  assert.equal(prot.length, 1)
+  const p = JSON.parse(app.files.get(archiv.pfad(prot[0])))
+  assert.ok(p.unterschiede.some((u) => u.feld === 'summen.brutto' && u.alt === 11.9 && u.neu === 12.9), JSON.stringify(p.unterschiede))
+  assert.equal(p.beleg, entry.id)
+  assert.match(neu.rechnung.pruefung.hinweise.at(-1), /^Neu ausgewertet am .*summen\.brutto 11\.9 → 12\.9.*Protokoll im Archiv\.$/)
+  assert.ok(neu.neuausgewertet.unterschiede.length)
 })

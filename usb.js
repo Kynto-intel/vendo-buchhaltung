@@ -24,7 +24,7 @@ const ORDNER = 'Vendo-Sicherung'
 const MAGIE = Buffer.from('VSB1')
 const PROBE = 'vendo-usb-schluesselprobe'
 const FAT32_MAX = 4 * 1024 ** 3 - 1
-const STAND_VERSION = 2 // 2: mit persönlichen Angaben
+const STAND_VERSION = 3 // 2: mit persönlichen Angaben, 3: mit den übrigen Plugin-Daten (K.4)
 const sha = (x) => crypto.createHash('sha256').update(x).digest('hex')
 const atmen = () => new Promise((r) => setImmediate(r)) // Hauptprozess zwischendurch freigeben, damit die App nicht einfriert
 
@@ -123,7 +123,7 @@ function freierPlatz(wurzel) {
 }
 
 // ---------- Sichern ----------
-async function sichern({ archiv, wurzel, wiederherstellungsschluessel, kdf = null, jetzt = () => new Date(), freiBytes = null, fortschritt = () => {}, persoenlich = null }) {
+async function sichern({ archiv, wurzel, wiederherstellungsschluessel, kdf = null, jetzt = () => new Date(), freiBytes = null, fortschritt = () => {}, persoenlich = null, plugindaten = null }) {
   const pruefung = archiv.integritaetAsync ? await archiv.integritaetAsync() : archiv.integritaet()
   if (!pruefung.ok) throw new Error(`Nicht gesichert: Die Integritätsprüfung des Archivs meldet ${pruefung.fehler.length} Fehler. Bitte zuerst klären.`)
   const plan = await planen({ archiv, wurzel, freiBytes, pruefung }) // Integritätsprüfung nur einmal je Lauf
@@ -155,14 +155,14 @@ async function sichern({ archiv, wurzel, wiederherstellungsschluessel, kdf = nul
   if (!ergebnis.fehler.length) {
     const stempel = beginn.toISOString().replace(/[:.]/g, '-')
     stand = `${stempel}.vsb`
-    const inhalt = { version: STAND_VERSION, erstellt: beginn.toISOString(), archivEintraege: pruefung.geprueft, letzterHash: pruefung.letzterHash, index: fs.readFileSync(archiv.INDEX, 'utf8'), persoenlich: persoenlichPruefen(persoenlich) }
+    const inhalt = { version: STAND_VERSION, erstellt: beginn.toISOString(), archivEintraege: pruefung.geprueft, letzterHash: pruefung.letzterHash, index: fs.readFileSync(archiv.INDEX, 'utf8'), persoenlich: persoenlichPruefen(persoenlich), plugindaten: plugindaten && typeof plugindaten === 'object' && !Array.isArray(plugindaten) ? plugindaten : null }
     einmalSchreiben(path.join(s.ordner, 'staende', stand), verschluesseln(s.kDaten, Buffer.from(JSON.stringify(inhalt)), `stand:${stand}`))
   }
   const kontrolle = stand ? await pruefen({ wurzel, wiederherstellungsschluessel, stand }) : null
   const ok = !ergebnis.fehler.length && !!kontrolle?.ok
   const zeile = `${beginn.toISOString()}\t${ok ? 'OK' : 'FEHLER'}\tStand ${stand || '–'}\tneu ${ergebnis.neu}\tschon da ${ergebnis.schonDa}\tgeprüft ${kontrolle?.geprueft ?? 0}\t${[...ergebnis.fehler, ...(kontrolle?.fehler || [])].slice(0, 3).join(' | ')}\n`
   try { fs.appendFileSync(path.join(s.ordner, 'protokoll.txt'), zeile, 'utf8') } catch (f) { ergebnis.fehler.push(`Protokoll: ${f.message}`) }
-  return { ok, kennung: s.kennung, stand, archivEintraege: pruefung.geprueft, persoenlich: !!persoenlich, ...ergebnis, kontrolle }
+  return { ok, kennung: s.kennung, stand, archivEintraege: pruefung.geprueft, persoenlich: !!persoenlich, plugindaten: !!plugindaten, ...ergebnis, kontrolle }
 }
 // Persönliche Angaben: nur ein flaches Objekt aus Texten (wie persoenlich.normalisieren es liefert)
 function persoenlichPruefen(p) {
@@ -171,6 +171,8 @@ function persoenlichPruefen(p) {
   return p
 }
 // Was ein Stand über die persönlichen Angaben verrät: nur ob und wie viele Felder ausgefüllt sind, nie Werte
+// K.4: übrige Plugin-Daten im Stand (nur melden, welche Bereiche enthalten sind)
+const plugindatenKurz = (inhalt) => inhalt.plugindaten ? { enthalten: true, bereiche: Object.keys(inhalt.plugindaten).sort() } : { enthalten: false }
 const persoenlichKurz = (inhalt) => inhalt.persoenlich ? { enthalten: true, felder: Object.values(inhalt.persoenlich).filter(Boolean).length } : { enthalten: false }
 
 // Neuester (oder angegebener) Stand mit persönlichen Angaben, entschlüsselt (für die Rückholung nach einer Neuinstallation)
@@ -211,7 +213,7 @@ async function pruefen({ wurzel, wiederherstellungsschluessel, stand = null }) {
       fehler.push(`${e.datei}: ${f.code === 'ENOENT' ? 'fehlt auf dem Stick' : f.message}`)
     }
   }
-  return { ok: !fehler.length, stand: name, staende: staende.length, erstellt: inhalt.erstellt, archivEintraege: inhalt.archivEintraege, geprueft, persoenlich: persoenlichKurz(inhalt), fehler }
+  return { ok: !fehler.length, stand: name, staende: staende.length, erstellt: inhalt.erstellt, archivEintraege: inhalt.archivEintraege, geprueft, persoenlich: persoenlichKurz(inhalt), plugindaten: plugindatenKurz(inhalt), fehler }
 }
 
 // ---------- Wiederherstellen (Schritt 1.10) ----------

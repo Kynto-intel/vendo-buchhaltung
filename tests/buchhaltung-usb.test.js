@@ -320,3 +320,18 @@ test('P-2: Wiederherstellung meldet die Angaben (nur Anzahl), Rückholung liefer
   assert.deepEqual([r.ok, r.persoenlich], [true, { enthalten: true, felder: 8 }])
   await assert.rejects(usb.persoenlichLesen({ wurzel: stick, wiederherstellungsschluessel: schluessel.erzeugen() }), /anderen Wiederherstellungsschlüssel/)
 })
+
+test('K.4: übrige Plugin-Daten kommen verschlüsselt in den Stand (Version 3), Prüfung meldet nur die Bereiche', async (t) => {
+  const { a, stick, k } = aufbau(t)
+  const plugindaten = { p13bAnbieter: { 'Synthetik Ltd': { einstufung: 'steuerfrei' } }, angaben: { firmenname: 'Synthetik-Shop', steuerzeitraeume: [] }, p13bMonate: { '2026-Q1': { am: '2026-04-09' } } }
+  const erg = await usb.sichern(opt({ archiv: a, wurzel: stick, wiederherstellungsschluessel: k, plugindaten }))
+  assert.deepEqual([erg.ok, erg.plugindaten], [true, true], JSON.stringify(erg))
+  for (const datei of alleDateien(stick)) assert.equal(fs.readFileSync(datei).includes(Buffer.from('Synthetik Ltd')), false, `${path.basename(datei)} im Klartext`)
+  const ordner = path.join(stick, 'Vendo-Sicherung')
+  const name = fs.readdirSync(path.join(ordner, 'staende'))[0]
+  const s = await usb.oeffnen(stick, k)
+  const inhalt = JSON.parse(usb.entschluesseln(s.kDaten, fs.readFileSync(path.join(ordner, 'staende', name)), `stand:${name}`).toString('utf8'))
+  assert.deepEqual([inhalt.version, inhalt.plugindaten], [3, plugindaten])
+  const p = await usb.pruefen({ wurzel: stick, wiederherstellungsschluessel: k })
+  assert.deepEqual(p.plugindaten, { enthalten: true, bereiche: ['angaben', 'p13bAnbieter', 'p13bMonate'] })
+})

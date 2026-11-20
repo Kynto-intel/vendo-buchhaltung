@@ -117,6 +117,8 @@ function createPluginHarness({ failOnSave = false, initialData = { dateien: [] }
     ['./datenbank-index', require('../datenbank-index.js')],
     ['./persoenlich', require('../persoenlich.js')],
     ['./jahresarchiv', require('../jahresarchiv.js')],
+    ['./verfahren', require('../verfahren.js')],
+    ['./dsgvo', require('../dsgvo.js')],
     ['./profil', require('../profil.js')],
     ['./bisher', { EIGENE_NAMEN: [/synthetik/i, /muster/i], FIRMA: { name: 'Synthetik-Shop', zeilen: ['Teststraße 1 / Musterstadt', '12345 / Germany', 'test@example.test', 'example.test'], schluss: ['Empfänger: Erika Muster, IBAN: DE89370400440532013000,', 'Bank: Testbank, W-IdNr: DE123456789'] } }],
     ['./schluessel', { speicher(optionen) { usbAufrufe.push({ optionen }); return { status: () => ({ vorhanden: false }), neu: () => ({ schluessel: 'K', kennung: 'ID' }), bestaetigen: (e) => ({ bestaetigt: e }), eingeben: (e) => ({ eingegeben: e }), laden: () => 'GEHEIM' } } }],

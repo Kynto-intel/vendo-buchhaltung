@@ -21,6 +21,8 @@ const profil = require('./profil') // gespeicherte Angaben zur Laufzeit für Par
 const persoenlich = require('./persoenlich') // persönliche Angaben (verschlüsselt) und ELSTER-Übersicht (Plan 11.3)
 const jahresarchiv = require('./jahresarchiv') // Jahresarchiv als ZIP (Plan 11.4, E.1)
 const dbIndex = require('./datenbank-index') // abgeleiteter Index in PostgreSQL (Plan 11.2, Phase D)
+const verfahren = require('./verfahren') // Verfahrensdokumentation und Jahresnachweis (Schritt 7.2 / E.4)
+const dsgvo = require('./dsgvo') // Verzeichnis, Auskunft, Sperre statt Löschen (Schritt 7.3)
 
 const ID = /^r[a-f0-9]{20}$/
 const MAX_SEITEN = 50
@@ -591,10 +593,17 @@ module.exports = (ctx) => {
     if (innerhalb(ziel, belegArchiv.WURZEL)) throw new Error('Das Jahresarchiv bitte nicht in das Belegarchiv speichern.')
     const d = ctx.datenLaden()
     const anbieter = d.p13bAnbieter || {}
+    let vdExport = null // Verfahrensdokumentation genau wie im ZIP, danach im Archiv protokolliert
     const inhalt = jahresarchiv.zusammenstellen({
       jahr, archiv: belegArchiv, shop: bestellungen.eintraege(), shirtigo: shirtigoB.eintraege(), belege: lesen().map((x) => mit13b(x, anbieter)),
       euer: (dashboardDaten(heute).euer || []).find((e) => e.jahr === jahr) || null,
-      firma: { ...angaben.standardwerte(), ...(d.angaben || {}) }, version: require('./plugin.json').version
+      firma: { ...angaben.standardwerte(), ...(d.angaben || {}) }, version: require('./plugin.json').version,
+      zusatz: ({ fehler, pruefwert, arten }) => {
+        const stand = verfahrenStand()
+        vdExport = verfahren.verfahrensdokumentation({ stand, ergaenzungen: d.verfahren?.ergaenzungen, bestaetigung: d.verfahren?.bestaetigung })
+        const euer = (dashboardDaten(heute).euer || []).find((e) => e.jahr === jahr) || null
+        return [{ name: 'verfahrensdokumentation.md', inhalt: Buffer.from(vdExport, 'utf8') }, { name: 'jahresnachweis.md', inhalt: Buffer.from(verfahren.jahresnachweis({ jahr, stand, arten, euer, fehler, pruefwert }), 'utf8') }]
+      }
     })
     const erg = await jahresarchiv.schreiben(inhalt.dateien, ziel)
     try {
@@ -602,6 +611,7 @@ module.exports = (ctx) => {
       const bericht = { vorgang: 'jahresarchiv', jahr, zeit, datei: path.basename(ziel), bytes: erg.bytes, sha256: erg.sha256, dateien: inhalt.dateien.length, fehler: inhalt.fehler, pruefwert: inhalt.pruefwert }
       belegArchiv.ablegen(Buffer.from(JSON.stringify(bericht, null, 2), 'utf8'), { art: 'protokoll', jahr: Number(heute.slice(0, 4)), name: `Jahresarchiv ${jahr} ${zeit.slice(0, 19).replace(/:/g, '-')}.json`, meta: { vorgang: 'jahresarchiv', jahr, sha256: erg.sha256 } })
     } catch (f) { inhalt.fehler.push(`Protokoll im Archiv: ${f.message}`) }
+    try { if (vdExport) verfahrenAblegen(vdExport, `jahresarchiv ${jahr}`) } catch (f) { inhalt.fehler.push(`Verfahrensdokumentation im Archiv: ${f.message}`) }
     return { ...erg, dateien: inhalt.dateien.length, fehler: inhalt.fehler }
   })
   // Prüfwert (E.2): Kopf der Hash-Kette zum Abschreiben; ein alter Prüfwert muss als Kettenglied wiederzufinden sein,
@@ -614,6 +624,100 @@ module.exports = (ctx) => {
     const treffer = e.find((x) => x.hash === wert)
     return { gueltig: true, bekannt: !!treffer, nr: treffer?.nr || null, zeit: treffer?.zeit || null, seitdemNeu: treffer ? e.length - treffer.nr : null }
   })
+  // ---------- Verfahrensdokumentation (7.2 / E.4) ----------
+  // Aus dem echten Aufbau erzeugt; der Nutzer ergänzt nur, was Vendo nicht wissen kann, und bestätigt. Jede bestätigte
+  // und jede exportierte Fassung wird als Datei im Archiv protokolliert (Art „protokoll“).
+  const pfadKurz = (p) => { const h = require('node:os').homedir(); return p && h && p.toLowerCase().startsWith(h.toLowerCase()) ? `%USERPROFILE%${p.slice(h.length)}` : p }
+  function verfahrenStand() {
+    const d = ctx.datenLaden()
+    const e = belegArchiv.eintraege()
+    const st = archivStatusDaten()
+    let shopifyEin = false
+    try { const z = shopifyZugang(); shopifyEin = !!(z?.token && z?.shop) } catch { /* nicht eingerichtet */ }
+    return {
+      jetzt: new Date().toISOString(), umgebung: host.art, windows: host.windows,
+      firma: { ...angaben.standardwerte(), ...(d.angaben || {}) },
+      versionen: { plugin: require('./plugin.json').version, parser: VERSION, node: process.versions.node, electron: process.versions.electron || null },
+      archiv: { pfad: pfadKurz(belegArchiv.WURZEL), eintraege: e.length, erster: e[0]?.zeit || null, arten: jahresarchiv.anzahlJeArt(e) },
+      wartung: d.wartung || null,
+      usb: { letzteSicherung: st.usb.letzteSicherung, laufwerk: st.usb.laufwerk, schluesselBestaetigt: !!st.schluessel.bestaetigt, wiederherstellungstest: d.usb?.letzterWiederherstellungstest || null },
+      datenbank: { zustand: !db ? 'keine Datenbank eingerichtet' : db.zustand().zustand === 'bereit' ? 'verbunden' : 'nicht verbunden' },
+      quellen: { shopify: { eingerichtet: shopifyEin, quelle: host.zugaengeEinstellbar ? 'eigen' : 'hermes' }, shirtigo: !!shirtigo.verbunden(), belege: lesen().length },
+      dienste: zeitstempel.DIENSTE.map((x) => x.name),
+      pruefwert: e.at(-1)?.hash || ''
+    }
+  }
+  const verfahrenText = () => { const v = ctx.datenLaden().verfahren || {}; return verfahren.verfahrensdokumentation({ stand: verfahrenStand(), ergaenzungen: v.ergaenzungen, bestaetigung: v.bestaetigung }) }
+  const verfahrenAblegen = (text, anlass) => { const zeit = new Date().toISOString(); return belegArchiv.ablegen(Buffer.from(text, 'utf8'), { art: 'protokoll', jahr: Number(heuteBerlin().slice(0, 4)), name: `Verfahrensdokumentation ${zeit.slice(0, 19).replace(/:/g, '-')}.md`, meta: { vorgang: 'verfahrensdokumentation', anlass, fassung: verfahren.FASSUNG } }) }
+  async function textSpeichernUnter(titel, name, text) {
+    const gewaehlt = await host.speichernUnter({ titel, name, filter: { name: 'Markdown-Text', extensions: ['md'] } })
+    if (!gewaehlt) return { abgebrochen: true }
+    const ziel = path.resolve(gewaehlt)
+    if (innerhalb(ziel, belegArchiv.WURZEL)) throw new Error('Bitte nicht in das Belegarchiv speichern.')
+    fs.writeFileSync(ziel, text, 'utf8')
+    return { datei: ziel }
+  }
+  ctx.bereitstellen('verfahrenLaden', () => {
+    const v = ctx.datenLaden().verfahren || {}
+    const e = verfahren.ergaenzungenNormalisieren(v.ergaenzungen)
+    return { felder: verfahren.ERGAENZUNGEN, werte: e, fehlend: verfahren.fehlend(e), bestaetigung: v.bestaetigung || null, bestaetigtGueltig: !!v.bestaetigung && v.bestaetigung.hash === verfahren.ergaenzungenHash(e), text: verfahrenText() }
+  })
+  ctx.bereitstellen('verfahrenSpeichern', (werte) => {
+    const e = verfahren.ergaenzungenNormalisieren(werte)
+    const d = ctx.datenLaden()
+    ctx.datenSpeichern({ ...d, verfahren: { ...(d.verfahren || {}), ergaenzungen: e } })
+    return { fehlend: verfahren.fehlend(e) }
+  })
+  ctx.bereitstellen('verfahrenBestaetigen', () => {
+    const d = ctx.datenLaden()
+    const e = verfahren.ergaenzungenNormalisieren(d.verfahren?.ergaenzungen)
+    const bestaetigung = { zeit: new Date().toISOString(), hash: verfahren.ergaenzungenHash(e) }
+    ctx.datenSpeichern({ ...d, verfahren: { ...(d.verfahren || {}), ergaenzungen: e, bestaetigung } })
+    return { bestaetigung, datei: verfahrenAblegen(verfahrenText(), 'bestaetigung').datei, fehlend: verfahren.fehlend(e) }
+  })
+  ctx.bereitstellen('verfahrenSpeichernUnter', () => textSpeichernUnter('Verfahrensdokumentation speichern', `Verfahrensdokumentation-${heuteBerlin()}.md`, verfahrenText()))
+
+  // ---------- Datenschutz (7.3) ----------
+  // Kundendaten verlassen den Hauptprozess nur als Suchtreffer für die eigene Oberfläche oder als Auskunft-ZIP (nie an Hermes/KI).
+  const zahlungsarten = () => [...new Set(bestellungen.eintraege().flatMap((x) => String(x.rechnung?.zahlung?.art || '').split(',').map((t) => t.trim())).filter(Boolean))].sort()
+  const verzeichnisText = () => dsgvo.verzeichnis({ firma: { ...angaben.standardwerte(), ...(ctx.datenLaden().angaben || {}) }, zahlungsarten: zahlungsarten(), shirtigo: shirtigoB.eintraege().length > 0 || !!shirtigo.verbunden() })
+  const anfragen = () => ctx.datenLaden().datenschutz?.anfragen || []
+  ctx.bereitstellen('datenschutzLaden', () => ({ verzeichnis: verzeichnisText(), anfragen: anfragen() }))
+  ctx.bereitstellen('datenschutzVerzeichnisSpeichern', () => textSpeichernUnter('Verzeichnis der Verarbeitungstätigkeiten speichern', `Verarbeitungsverzeichnis-${heuteBerlin()}.md`, verzeichnisText()))
+  ctx.bereitstellen('datenschutzSuchen', (begriff) => {
+    const shop = bestellungen.eintraege()
+    return dsgvo.suchen(shop, begriff).map((t) => ({ ...t, gesperrtBis: dsgvo.gesperrtBis({ archiv: belegArchiv, shop, nrs: [t.nr] }) }))
+  })
+  const nummernPruefen = (nrs) => {
+    const n = [...new Set((Array.isArray(nrs) ? nrs : []).map(String))]
+    if (!n.length || n.some((x) => !/^[\w-]{1,30}$/.test(x))) throw new Error('Bitte Bestellungen auswählen.')
+    return n
+  }
+  const anfrageMerken = (eintrag) => { const d = ctx.datenLaden(); const ds = d.datenschutz || {}; ctx.datenSpeichern({ ...d, datenschutz: { ...ds, anfragen: [...(ds.anfragen || []), eintrag] } }) }
+  ctx.bereitstellen('datenschutzAuskunft', async ({ nrs } = {}) => {
+    nrs = nummernPruefen(nrs)
+    const d = ctx.datenLaden()
+    const erg = dsgvo.auskunft({ archiv: belegArchiv, shop: bestellungen.eintraege(), shirtigo: shirtigoB.eintraege(), nrs, firma: { ...angaben.standardwerte(), ...(d.angaben || {}) } })
+    const gewaehlt = await host.speichernUnter({ titel: 'Auskunft speichern', name: `Auskunft-${heuteBerlin()}.zip`, filter: { name: 'ZIP-Archiv', extensions: ['zip'] } })
+    if (!gewaehlt) return { abgebrochen: true }
+    const ziel = path.resolve(gewaehlt)
+    if (innerhalb(ziel, belegArchiv.WURZEL)) throw new Error('Bitte nicht in das Belegarchiv speichern.')
+    const zip = await jahresarchiv.schreiben(erg.dateien, ziel)
+    anfrageMerken({ art: 'auskunft', zeit: new Date().toISOString(), bestellungen: nrs, name: erg.name, sha256: zip.sha256 })
+    return { ...zip, dateien: erg.dateien.length, fehler: erg.fehler }
+  })
+  // Löschanfrage: nicht löschen, sondern Sperre bis Fristende vermerken (Art. 17 Abs. 3 lit. b, Art. 18 DSGVO)
+  ctx.bereitstellen('datenschutzSperren', ({ nrs, eingang } = {}) => {
+    nrs = nummernPruefen(nrs)
+    eingang = String(eingang || heuteBerlin())
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(eingang)) throw new Error('Ungültiges Eingangsdatum.')
+    const shop = bestellungen.eintraege()
+    const name = shop.find((x) => nrs.includes(String(x.rechnung?.referenz)))?.rechnung?.empfaenger?.name || ''
+    const eintrag = { art: 'loeschung', zeit: new Date().toISOString(), eingang, bestellungen: nrs, name, gesperrtBis: dsgvo.gesperrtBis({ archiv: belegArchiv, shop, nrs }) }
+    anfrageMerken(eintrag)
+    return eintrag
+  })
+
   function archivStatusDaten() {
     const d = ctx.datenLaden()
     const w = d.wartung || null

@@ -189,9 +189,46 @@ test('PDF hochladen (Browser-Weg) legt ins Archiv; Jahresarchiv kommt als einmal
   assert.match(zip.kopf['content-disposition'], /^attachment; filename="Buchhaltung-/)
   assert.equal(zip.roh.subarray(0, 2).toString('latin1'), 'PK')
   assert.equal(zip.roh.length, exp.wert.bytes)
+  // 7.2 / E.4: Verfahrensdokumentation und Jahresnachweis liegen im ZIP; die Fassung aus dem ZIP ist im Archiv protokolliert
+  const { unzipSync, strFromU8 } = require('fflate')
+  const inhalt = unzipSync(new Uint8Array(zip.roh))
+  const vd = strFromU8(inhalt['verfahrensdokumentation.md'])
+  assert.match(vd, /^# Verfahrensdokumentation Buchführung und Belegarchiv/)
+  assert.match(vd, /eigenständig im Browser/)
+  assert.match(strFromU8(inhalt['jahresnachweis.md']), new RegExp(`^# Jahresnachweis ${jahr}`))
+  const index = fs.readFileSync(path.join(d, 'archiv', 'index.jsonl'), 'utf8').trim().split('\n').map((z) => JSON.parse(z))
+  const vdEintrag = index.find((e) => e.meta?.vorgang === 'verfahrensdokumentation')
+  assert.equal(vdEintrag?.meta.anlass, `jahresarchiv ${jahr}`)
+  assert.deepEqual(fs.readFileSync(path.join(d, 'archiv', ...vdEintrag.datei.split('/'))), Buffer.from(inhalt['verfahrensdokumentation.md']), 'Fassung im Archiv = Fassung im ZIP')
   assert.equal(fs.existsSync(path.join(d, 'exporte', exp.downloads[0].name)), true, 'Export bleibt im Datenordner')
   assert.equal((await anfrage(s.port, { pfad: exp.downloads[0].url })).status, 404, 'Download-Adresse gilt nur einmal')
   assert.equal((await anfrage(s.port, { pfad: '/download/geraten' })).status, 404)
+})
+
+test('Verfahrensdokumentation und Datenschutz über die Dienste: ergänzen, bestätigen, protokollieren, Verzeichnis', async (t) => {
+  const { d, api } = await serverStarten(t, { passwort: PASSWORT })
+  const leer = (await api('verfahrenLaden')).wert
+  assert.equal(leer.fehlend.length, 8)
+  assert.equal(leer.bestaetigung, null)
+  assert.match(leer.text, /Noch nicht durchgesehen und bestätigt/)
+  const werte = Object.fromEntries(leer.felder.map((f) => [f.feld, `Synthetisch ${f.feld}`]))
+  assert.deepEqual((await api('verfahrenSpeichern', [werte])).wert.fehlend, [])
+  const b = (await api('verfahrenBestaetigen')).wert
+  assert.match(b.datei, /protokoll\/Verfahrensdokumentation .*\.md$/)
+  const abgelegt = fs.readFileSync(path.join(d, 'archiv', ...b.datei.split('/')), 'utf8')
+  assert.match(abgelegt, /Durchgesehen und bestätigt am/)
+  assert.match(abgelegt, /Synthetisch stickOrt/)
+  assert.equal((await api('verfahrenLaden')).wert.bestaetigtGueltig, true)
+  await api('verfahrenSpeichern', [{ ...werte, zugriff: 'geändert' }])
+  assert.equal((await api('verfahrenLaden')).wert.bestaetigtGueltig, false, 'Änderung verlangt neue Bestätigung')
+  assert.equal((await api('verfahrenSpeichern', [{ papier: 'x'.repeat(2001) }])).ok, false)
+
+  const ds = (await api('datenschutzLaden')).wert
+  assert.match(ds.verzeichnis, /Verzeichnis von Verarbeitungstätigkeiten/)
+  assert.deepEqual(ds.anfragen, [])
+  assert.match((await api('datenschutzSuchen', ['ab'])).fehler, /mindestens 3 Zeichen/)
+  assert.deepEqual((await api('datenschutzSuchen', ['niemand@example.test'])).wert, [])
+  assert.match((await api('datenschutzSperren', [{ nrs: [] }])).fehler, /Bestellungen auswählen/)
 })
 
 test('Eigenes Repository vorbereitet: private Dateien ausgeschlossen, keine festen Bezüge im Code', () => {

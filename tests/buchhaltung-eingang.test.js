@@ -56,7 +56,7 @@ function starten(t) {
     ['./archiv', require('../archiv.js')], ['./zeitstempel', require('../zeitstempel.js')], ['./schluessel', require('../schluessel.js')], ['./usb', require('../usb.js')], ['./beleg-layout', { bildspeicherSetzen: () => {} }], ['./angaben', require('../angaben.js')], ['./steuer', require('../steuer.js')], ['./uebersicht', require('../uebersicht.js')],
  ['./datenbank-index', require('../datenbank-index.js')],
  ['./persoenlich', require('../persoenlich.js')],
- ['./jahresarchiv', require('../jahresarchiv.js')], ['./schutz', { schuetzen: (z) => { schutzAufrufe.push(z); return { erfolgreich: true } } }]
+ ['./jahresarchiv', require('../jahresarchiv.js')], ['./verfahren', require('../verfahren.js')], ['./dsgvo', require('../dsgvo.js')], ['./schutz', { schuetzen: (z) => { schutzAufrufe.push(z); return { erfolgreich: true } } }]
   ])
   const modul = { exports: {} }
   new Function('require', 'module', 'exports', '__dirname', fs.readFileSync(path.join(pluginFolder, 'haupt.js'), 'utf8'))(

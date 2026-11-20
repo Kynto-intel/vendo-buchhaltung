@@ -4,6 +4,8 @@ const BEREICHE = [
   { id: 'firmendaten', titel: 'Firmendaten' },
   { id: 'persoenlich', titel: 'Persönliche Angaben' },
   { id: 'elster', titel: 'ELSTER-Übersicht' },
+  { id: 'verfahren', titel: 'Verfahrensdokumentation' },
+  { id: 'datenschutz', titel: 'Datenschutz' },
   { id: 'menue', titel: 'Bereiche im Menü' },
   { id: 'export', titel: 'Export' }
 ]
@@ -125,7 +127,7 @@ export function angabenBereicheErstellen(container, { aufrufen = null, menueAnwe
       <div class="rn-usb-kopf"><strong>Export</strong></div>
       <div class="rn-ang-export-raster">
         <section class="rn-ang-export-karte"><h3>Jahresarchiv</h3>
-          <p class="leise">ZIP mit allen Belegen des Jahres (unverändert), Tabellen (CSV), EÜR-Kennzahlen, Auszug der Hash-Kette und Prüfsummen. Ohne persönliche Angaben.</p>
+          <p class="leise">ZIP mit allen Belegen des Jahres (unverändert), Tabellen (CSV), EÜR-Kennzahlen, Hash-Kette, Prüfsummen, Verfahrensdokumentation und Jahresnachweis. Ohne persönliche Angaben.</p>
           <div class="rn-ang-aktion"><select data-jahresarchiv-jahr aria-label="Jahr">${(jahre || []).map((j) => `<option ${j === vorjahr ? 'selected' : ''}>${esc(j)}</option>`).join('')}</select>
           <button class="knopf-mini" type="button" data-export-aktion="jahresarchiv" ${(jahre || []).length ? '' : 'disabled'}>Exportieren …</button></div>
           <span class="leise" data-export-meldung="jahresarchiv"></span></section>
@@ -175,8 +177,120 @@ export function angabenBereicheErstellen(container, { aufrufen = null, menueAnwe
         : 'Nicht in der Hash-Kette gefunden: Dieser Stand ist im Archiv nicht mehr enthalten. Bitte „Jetzt prüfen“.'
   })
 
+  // ---------- Verfahrensdokumentation (7.2 / E.4) ----------
+  const tagDe = (t) => (t ? `${t.slice(8, 10)}.${t.slice(5, 7)}.${t.slice(0, 4)}` : '–')
+  const nachricht = (f) => String(f?.message || f).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') // ohne Electron-Vorspann
+  async function verfahrenZeichnen(meldungText = '') {
+    const v = await aufrufen('verfahrenLaden')
+    const zustand = v.bestaetigtGueltig ? `Durchgesehen und bestätigt am ${datum(v.bestaetigung.zeit)}.` : v.bestaetigung ? 'Seit der letzten Bestätigung geändert: bitte erneut durchsehen und bestätigen.' : 'Noch nicht bestätigt.'
+    panel('verfahren').innerHTML = `<form class="rn-ang-vorschau" data-verfahren-form>
+      <div class="rn-usb-kopf"><strong>Verfahrensdokumentation</strong></div>
+      <p class="leise">Beschreibt nach GoBD, wie Belege entstehen, archiviert, geprüft und gesichert werden. Vendo erzeugt sie aus dem tatsächlichen Aufbau (Archiv, Siegel, Sicherung, Datenbank, Versionen). Ergänze nur, was Vendo nicht wissen kann. Sie liegt jedem Jahresarchiv bei; jede bestätigte und jede exportierte Fassung wird im Archiv protokolliert.</p>
+      <p class="leise" data-verfahren-zustand>${v.fehlend.length ? `${v.fehlend.length} Angabe(n) fehlen. ` : 'Alle Angaben ausgefüllt. '}${esc(zustand)}</p>
+      <fieldset class="rn-ang-gruppe"><legend>Ergänzungen</legend><div class="rn-ang-raster">
+        ${v.felder.map((f) => `<label class="rn-ang-feld ${f.typ === 'textarea' ? 'rn-ang-breit' : ''}"><span>${esc(f.label)}</span>${f.typ === 'textarea' ? `<textarea name="${f.feld}" rows="3">${esc(v.werte[f.feld])}</textarea>` : `<input name="${f.feld}" type="text" value="${esc(v.werte[f.feld])}" placeholder="${esc(f.hilfe || '')}" autocomplete="off" />`}</label>`).join('')}
+      </div></fieldset>
+      <div class="rn-ang-aktion"><button class="knopf-mini" type="submit">Speichern</button>
+        <button class="knopf-mini" type="button" data-verfahren-aktion="bestaetigen">Durchgesehen – bestätigen</button>
+        <button class="knopf-mini" type="button" data-verfahren-aktion="speichernUnter">Als Datei speichern …</button>
+        <span class="leise" data-verfahren-meldung>${esc(meldungText)}</span></div>
+      <pre class="rn-ang-text" data-verfahren-text>${esc(v.text)}</pre>
+    </form>`
+  }
+  const verfahrenWerte = () => Object.fromEntries(new FormData(container.querySelector('[data-verfahren-form]')))
+  container.addEventListener('submit', async (e) => {
+    if (!e.target.matches?.('[data-verfahren-form]')) return
+    e.preventDefault()
+    try { const r = await aufrufen('verfahrenSpeichern', verfahrenWerte()); await verfahrenZeichnen(r.fehlend.length ? `Gespeichert. Noch offen: ${r.fehlend.join(', ')}.` : 'Gespeichert.') } catch (f) { container.querySelector('[data-verfahren-meldung]').textContent = `Nicht gespeichert: ${nachricht(f)}` }
+  })
+  container.addEventListener('click', async (e) => {
+    const a = e.target.closest?.('[data-verfahren-aktion]')
+    if (!a) return
+    const meldung = (t) => { const el = container.querySelector('[data-verfahren-meldung]'); if (el) el.textContent = t }
+    a.disabled = true
+    try {
+      if (a.dataset.verfahrenAktion === 'bestaetigen') {
+        await aufrufen('verfahrenSpeichern', verfahrenWerte())
+        const r = await aufrufen('verfahrenBestaetigen')
+        await verfahrenZeichnen(`Bestätigt und im Archiv abgelegt${r.fehlend.length ? ` (noch offen: ${r.fehlend.length} Angabe(n))` : ''}.`)
+      } else {
+        const r = await aufrufen('verfahrenSpeichernUnter')
+        meldung(r.abgebrochen ? 'Abgebrochen.' : `Gespeichert: ${r.datei}`)
+      }
+    } catch (f) { meldung(`Fehler: ${nachricht(f)}`) } finally { a.disabled = false }
+  })
+
+  // ---------- Datenschutz (7.3) ----------
+  async function datenschutzZeichnen() {
+    const d = await aufrufen('datenschutzLaden')
+    const sperren = d.anfragen.filter((x) => x.art === 'loeschung')
+    panel('datenschutz').innerHTML = `<div class="rn-ang-vorschau">
+      <div class="rn-usb-kopf"><strong>Datenschutz</strong></div>
+      <p class="leise">Rechnungs- und Kundendaten bleiben in der Buchhaltung: Sie gehen nie an Hermes oder KI-Anbieter.</p>
+      <fieldset class="rn-ang-gruppe"><legend>Auskunft und Löschanfragen</legend>
+        <p class="leise">Bestellungen einer Person suchen (E-Mail-Adresse genau oder Teil des Namens). Belege dürfen während der Aufbewahrungsfrist nicht gelöscht werden: Eine Löschanfrage wird als Sperre bis zum Fristende vermerkt. Das Kundenkonto in Shopify bitte dort selbst löschen.</p>
+        <form class="rn-ang-aktion" data-ds-suche><input type="search" name="begriff" placeholder="E-Mail oder Name" aria-label="E-Mail oder Name" autocomplete="off" /><button class="knopf-mini" type="submit">Suchen</button></form>
+        <div data-ds-treffer></div>
+        <span class="leise" data-ds-meldung></span>
+      </fieldset>
+      <fieldset class="rn-ang-gruppe"><legend>Vermerkte Anfragen</legend>
+        ${d.anfragen.length ? `<table class="rn-ang-tabelle rn-ang-liste"><thead><tr><th>Art</th><th>Eingang/Erledigt</th><th>Person</th><th>Bestellungen</th><th>Status</th></tr></thead><tbody>${d.anfragen.slice().reverse().map((x) => `<tr><td>${x.art === 'loeschung' ? 'Löschanfrage' : 'Auskunft'}</td><td>${x.art === 'loeschung' ? tagDe(x.eingang) : datum(x.zeit)}</td><td>${esc(x.name || '–')}</td><td>${esc(x.bestellungen.join(', '))}</td><td>${x.art === 'loeschung' ? `gesperrt bis ${tagDe(x.gesperrtBis)}` : 'exportiert'}</td></tr>`).join('')}</tbody></table>` : '<p class="leise">Noch keine.</p>'}
+      </fieldset>
+      <fieldset class="rn-ang-gruppe"><legend>Verzeichnis der Verarbeitungstätigkeiten (Art. 30, Entwurf)</legend>
+        <div class="rn-ang-aktion"><button class="knopf-mini" type="button" data-ds-aktion="verzeichnis">Als Datei speichern …</button><span class="leise" data-ds-verz-meldung></span></div>
+        <pre class="rn-ang-text">${esc(d.verzeichnis)}</pre>
+      </fieldset>
+    </div>`
+    panel('datenschutz').dataset.sperren = JSON.stringify(Object.fromEntries(sperren.flatMap((x) => x.bestellungen.map((n) => [n, x.gesperrtBis]))))
+  }
+  const dsMeldung = (t) => { const el = container.querySelector('[data-ds-meldung]'); if (el) el.textContent = t }
+  const dsAuswahl = () => [...container.querySelectorAll('[data-ds-nr]:checked')].map((x) => x.value)
+  container.addEventListener('submit', (e) => {
+    if (!e.target.matches?.('[data-ds-suche]')) return
+    e.preventDefault()
+    dsSuchen(e.target.begriff.value)
+  })
+  async function dsSuchen(begriff) {
+    const ziel = container.querySelector('[data-ds-treffer]')
+    try {
+      const treffer = await aufrufen('datenschutzSuchen', begriff)
+      const gesperrt = JSON.parse(panel('datenschutz').dataset.sperren || '{}')
+      dsMeldung(treffer.length ? '' : 'Keine Bestellungen gefunden.')
+      ziel.innerHTML = treffer.length ? `<table class="rn-ang-tabelle rn-ang-liste"><thead><tr><th></th><th>Bestellung</th><th>Datum</th><th>Name</th><th>E-Mail</th><th>Ort</th><th>Aufbewahrung bis</th></tr></thead><tbody>${treffer.map((t) => `<tr><td><input type="checkbox" data-ds-nr value="${esc(t.nr)}" checked aria-label="Bestellung ${esc(t.nr)}" /></td><td>${esc(t.nr)}</td><td>${tagDe(t.datum)}</td><td>${esc(t.name)}</td><td>${esc(t.email)}</td><td>${esc(t.ort)}</td><td>${gesperrt[t.nr] ? `gesperrt bis ${tagDe(gesperrt[t.nr])}` : tagDe(t.gesperrtBis)}</td></tr>`).join('')}</tbody></table>
+        <div class="rn-ang-aktion"><button class="knopf-mini" type="button" data-ds-aktion="auskunft">Auskunft exportieren …</button>
+        <label class="rn-ang-feld rn-ang-jahr"><span>Löschanfrage vom</span><input type="date" data-ds-eingang value="${new Date().toLocaleDateString('sv-SE')}" /></label>
+        <button class="knopf-mini" type="button" data-ds-aktion="sperren">Löschanfrage vermerken (sperren)</button></div>` : ''
+    } catch (f) { ziel.innerHTML = ''; dsMeldung(nachricht(f)) }
+  }
+  container.addEventListener('click', async (e) => {
+    const a = e.target.closest?.('[data-ds-aktion]')
+    if (!a) return
+    a.disabled = true
+    try {
+      if (a.dataset.dsAktion === 'verzeichnis') {
+        const r = await aufrufen('datenschutzVerzeichnisSpeichern')
+        container.querySelector('[data-ds-verz-meldung]').textContent = r.abgebrochen ? 'Abgebrochen.' : `Gespeichert: ${r.datei}`
+      } else if (a.dataset.dsAktion === 'auskunft') {
+        dsMeldung('Stellt zusammen …')
+        const r = await aufrufen('datenschutzAuskunft', { nrs: dsAuswahl() })
+        dsMeldung(r.abgebrochen ? 'Abgebrochen.' : `Gespeichert: ${r.datei} (${r.dateien} Dateien)${r.fehler.length ? `. Hinweise: ${r.fehler.join(' ')}` : '.'}`)
+        if (!r.abgebrochen) await datenschutzNeu()
+      } else if (a.dataset.dsAktion === 'sperren') {
+        const r = await aufrufen('datenschutzSperren', { nrs: dsAuswahl(), eingang: container.querySelector('[data-ds-eingang]').value })
+        await datenschutzNeu()
+        dsMeldung(`Vermerkt: gesperrt bis ${tagDe(r.gesperrtBis)}. Danach können die Daten gelöscht werden.`)
+      }
+    } catch (f) { dsMeldung(`Fehler: ${nachricht(f)}`) } finally { a.disabled = false }
+  })
+  // Neu zeichnen und die letzte Suche wiederholen, damit Treffer und Sperren aktuell bleiben
+  async function datenschutzNeu() {
+    const begriff = container.querySelector('[data-ds-suche] [name="begriff"]')?.value || ''
+    await datenschutzZeichnen()
+    if (begriff) { container.querySelector('[data-ds-suche] [name="begriff"]').value = begriff; await dsSuchen(begriff) }
+  }
+
   // ---------- Tabs ----------
-  const LADEN = { persoenlich: persoenlichZeichnen, elster: () => (elsterGeladen ? null : elsterZeichnen()), menue: menueZeichnen, export: exportZeichnen }
+  const LADEN = { persoenlich: persoenlichZeichnen, elster: () => (elsterGeladen ? null : elsterZeichnen()), menue: menueZeichnen, export: exportZeichnen, verfahren: () => verfahrenZeichnen(), datenschutz: datenschutzZeichnen }
   const tabs = [...container.querySelectorAll('[data-angaben-tab]')]
   const panels = [...container.querySelectorAll('[data-angaben-inhalt]')]
   const aktivieren = (id) => {

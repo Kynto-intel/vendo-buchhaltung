@@ -6,7 +6,9 @@ Lokale Buchhaltung für kleine Online-Shops (Kleinunternehmer und Regelbesteueru
 erzeugt daraus Umsatzbelege, holt Shirtigo-Bestellungen mit Original-Rechnung, liest eigene PDF-Rechnungen lokal aus
 (Textebene oder Texterkennung, ohne Upload) und legt alles in ein Belegarchiv mit Hash-Kette, Zeitstempel-Siegeln und
 verschlüsselter USB-Sicherung. Dazu Gewinn je Bestellung, Umsatz je Jahr, Kleinunternehmergrenzen, § 13b,
-EÜR-Übersicht, ELSTER-Übersicht zum Abtippen und ein Jahresarchiv als ZIP.
+EÜR-Übersicht, ELSTER-Übersicht zum Abtippen und ein Jahresarchiv als ZIP mit automatisch erzeugter
+Verfahrensdokumentation (GoBD) und Jahresnachweis. Für den Datenschutz: Entwurf des Verzeichnisses der
+Verarbeitungstätigkeiten, Auskunft je Person als ZIP und Löschanfragen als Sperre bis zum Ende der Aufbewahrungsfrist.
 
 Alle Daten bleiben auf dem eigenen Rechner. Nach außen gehen nur die Abfragen bei Shopify und Shirtigo (mit den eigenen
 Zugängen) und beim Versiegeln ein Prüfwert (Hash) an zwei Zeitstempeldienste – nie Belegdaten.
@@ -101,6 +103,7 @@ Pfad oder `VENDO_OPENSSL`).
 | `parser.js`, `textlayer.js` | PDF-Rechnungen lokal auswerten |
 | `angaben*.js`, `persoenlich.js`, `profil.js` | Meine Angaben, Steuerstatus je Zeitraum, persönliche Angaben |
 | `steuer.js`, `uebersicht.js`, `jahresarchiv.js`, `datenbank-index.js` | Steuer, EÜR, Jahresarchiv, Index |
+| `verfahren.js`, `dsgvo.js` | Verfahrensdokumentation und Jahresnachweis, Datenschutz (Verzeichnis, Auskunft, Sperre) |
 
 ## Tests
 
